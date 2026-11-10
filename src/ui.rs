@@ -280,18 +280,32 @@ impl Ui {
             status.to_string(),
             self.neon(self.glyphs.prompt),
         ];
-        // A blank row above the pet keeps it apart from the results printed before it.
+        let width = self.width();
+        let widest = words.iter().map(|w| visible_len(w)).max().unwrap_or(0);
+        let col = pet_column(2 + widest, width);
+        // A blank row above keeps the pet apart from the results printed before it. The words
+        // sit on the left and the pet on the right; the last row is the prompt.
         let mut text = String::from("\n");
-        for (i, (row, word)) in rows.iter().zip(words).enumerate() {
-            text.push_str(&format!("  {}  {word}", self.neon(row)));
+        for (i, (row, word)) in rows.iter().zip(&words).enumerate() {
+            text.push_str(&format!("  {word}"));
+            let Some(col) = col else {
+                text.push(if i < 3 { '\n' } else { ' ' });
+                continue;
+            };
             if i < 3 {
-                text.push('\n');
+                text.push_str(&format!("\x1b[{col}G{}\n", self.neon(row)));
             } else {
-                text.push(' ');
+                // Draw the pet's tail, then put the cursor back just after the prompt sign.
+                text.push_str(&format!(" \x1b7\x1b[{col}G{}\x1b8", self.neon(row)));
             }
         }
         let _ = write!(out, "{text}");
         let _ = out.flush();
+    }
+
+    fn width(&self) -> usize {
+        terminal_size::terminal_size_of(std::io::stdout())
+            .map_or(80, |(w, _)| usize::from(w.0).max(20))
     }
 
     /// Erase the pet and the line typed beside it, once Enter is pressed, so there is only
@@ -300,8 +314,7 @@ impl Ui {
         if !self.shows_pet() {
             return;
         }
-        let width = terminal_size::terminal_size_of(std::io::stdout())
-            .map_or(80, |(w, _)| usize::from(w.0).max(20));
+        let width = self.width();
         // The blank row and three pet rows above the prompt, then the prompt and what was typed.
         let up = 4 + rows_taken(PROMPT_COLUMN + typed.trim_end().chars().count(), width);
         let mut out = std::io::stdout();
@@ -384,8 +397,34 @@ impl Tracker {
     }
 }
 
-/// Where typing starts on the prompt row: indent, pet, gap, prompt sign and a space.
-const PROMPT_COLUMN: usize = 2 + 9 + 2 + 2;
+/// Where typing starts on the prompt row: indent, prompt sign and a space.
+const PROMPT_COLUMN: usize = 2 + 2;
+
+/// Width of the pet, and the gap kept from the right edge of the window.
+const PET_WIDTH: usize = 9;
+const RIGHT_MARGIN: usize = 2;
+
+/// The column (counting from 1) where the pet is drawn: against the right edge, but never over
+/// the words. None when the window is too narrow for both.
+fn pet_column(words_end: usize, width: usize) -> Option<usize> {
+    let col = width.checked_sub(PET_WIDTH + RIGHT_MARGIN)? + 1;
+    (col > words_end + 3).then_some(col)
+}
+
+/// Characters a styled string takes on screen (escape codes take none).
+fn visible_len(s: &str) -> usize {
+    let mut n = 0;
+    let mut in_escape = false;
+    for c in s.chars() {
+        match (in_escape, c) {
+            (false, '\x1b') => in_escape = true,
+            (true, 'm') => in_escape = false,
+            (true, _) => {}
+            (false, _) => n += 1,
+        }
+    }
+    n
+}
 
 /// Screen rows a line of `columns` characters takes, wrapping at `width`.
 fn rows_taken(columns: usize, width: usize) -> usize {
@@ -439,9 +478,18 @@ mod tests {
     #[test]
     fn erasing_the_pet_counts_wrapped_input_lines() {
         assert_eq!(rows_taken(PROMPT_COLUMN, 80), 1);
-        assert_eq!(rows_taken(PROMPT_COLUMN + 65, 80), 1);
-        assert_eq!(rows_taken(PROMPT_COLUMN + 66, 80), 2);
+        assert_eq!(rows_taken(PROMPT_COLUMN + 76, 80), 1);
+        assert_eq!(rows_taken(PROMPT_COLUMN + 77, 80), 2);
         assert_eq!(rows_taken(PROMPT_COLUMN + 300, 80), 4);
+    }
+
+    #[test]
+    fn the_pet_sits_at_the_right_edge_but_never_over_the_words() {
+        // 100 columns: the pet's 9 columns end 2 short of the edge.
+        assert_eq!(pet_column(48, 100), Some(90));
+        // Narrow windows: no room beside the words, so no pet.
+        assert_eq!(pet_column(48, 60), None);
+        assert_eq!(visible_len("\x1b[2mhungry\x1b[0m"), 6);
     }
 
     #[test]

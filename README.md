@@ -1,13 +1,10 @@
 # Doc Monster
 
 ```
- .-~~~-.   Doc Monster 0.1.0
-( o   o )  drop files or folders here, then press Enter
-(  \_/  )  hungry. empty line quits
- '~^~^~'   › report.docx
-
-  ✓ report.docx → report.md
-  1 eaten · 0.2s
+  Doc Monster 0.1.0                                   .-~~~-.
+  drop files or folders here, then press Enter       ( o   o )
+  hungry. empty line quits                           (  \_/  )
+  › report.docx                                       '~^~^~'
 ```
 
 **Doc Monster eats documents and leaves clean, readable Markdown beside them, with a
@@ -46,7 +43,8 @@ afterwards, `-o folder` to collect outputs elsewhere, `--overwrite`, `--no-summa
 ### Drag and drop
 
 Run `doc-monster` (or `feed` / `gorge` without a path) and the monster, a small slime pet, waits
-beside the prompt: drag files or folders onto the terminal window and press Enter. Its face shows
+at the right of the prompt: drag files or folders onto the terminal window and press Enter. Its
+face shows
 how the last meal went. It understands the way every
 terminal writes a dropped file: backslash-escaped spaces (macOS Terminal, iTerm), single quotes
 (Linux terminals), double quotes (Windows Terminal, PowerShell, Command Prompt) and `file://`
