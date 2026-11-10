@@ -13,6 +13,7 @@ pub mod extract;
 pub mod index;
 pub mod profile;
 pub mod render;
+pub mod tools;
 
 use std::path::PathBuf;
 

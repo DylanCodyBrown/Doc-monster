@@ -432,6 +432,7 @@ dependencies = [
  "docx-rs",
  "enable-ansi-support",
  "encoding_rs",
+ "flate2",
  "htmd",
  "pdf-extract",
  "quick-xml 0.42.0",

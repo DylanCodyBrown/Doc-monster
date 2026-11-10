@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -44,13 +44,13 @@ const SAME_SCREEN: f32 = 0.7;
 const MIN_WORDS: usize = 3;
 
 fn installed(program: &str) -> bool {
-    Command::new(program)
+    crate::tools::command(program)
         .arg("-version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .is_ok()
-        || Command::new(program)
+        || crate::tools::command(program)
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -93,7 +93,7 @@ fn scratch_dir() -> PathBuf {
 }
 
 fn ocr(frame: &Path, lang: &str) -> String {
-    Command::new("tesseract")
+    crate::tools::command("tesseract")
         .arg(frame)
         .args(["stdout", "-l", lang, "--psm", "3"])
         // Frames are already read in parallel; one thread per Tesseract avoids oversubscription.
@@ -206,7 +206,7 @@ pub fn capture(video: &Path, lang: &str, max_frames: Option<usize>) -> Result<Ca
 }
 
 fn frame_path(dir: &Path, n: usize) -> PathBuf {
-    dir.join(format!("f{n:06}.png"))
+    dir.join(format!("f{n:06}.pgm"))
 }
 
 /// Size of the thumbnail used as each frame's fingerprint.
@@ -253,12 +253,12 @@ fn read_while_decoding(
 ) -> Result<(Vec<(u32, Vec<String>)>, (usize, usize, usize))> {
     let graph = "[0:v]fps=1,mpdecimate=hi=768:lo=320:frac=0.33:max=30,showinfo,split=2[f][t];\
                  [f]scale='min(1920,iw)':-2,format=gray[full];[t]scale=64:36:flags=area,format=gray[thumb]";
-    let mut child = Command::new("ffmpeg")
+    let mut child = crate::tools::command("ffmpeg")
         .args(["-v", "info", "-nostdin", "-i"])
         .arg(video)
         .args(["-filter_complex", graph])
         .args(["-map", "[full]", "-fps_mode", "vfr"])
-        .arg(dir.join("f%06d.png"))
+        .arg(dir.join("f%06d.pgm"))
         .args([
             "-map",
             "[thumb]",
@@ -332,18 +332,22 @@ fn read_while_decoding(
                     });
                     if let Some(k) = known {
                         copy_of.push((sent, k));
+                        let _ = std::fs::remove_file(frame_path(dir, sent));
                         continue;
                     }
                     seen.entry(key).or_default().push(sent);
                 }
                 if max_frames.is_some_and(|m| ocr_count >= m) {
                     skipped += 1;
+                    let _ = std::fs::remove_file(frame_path(dir, sent));
                     continue;
                 }
                 ocr_count += 1;
                 let (frame, read, n) = (frame_path(dir, sent), &read, sent);
                 workers.spawn(move |_| {
                     let lines = clean(&ocr(&frame, lang));
+                    // Frames are uncompressed; remove each once read so they never pile up.
+                    let _ = std::fs::remove_file(&frame);
                     read.lock().unwrap().push((n, lines));
                 });
             }

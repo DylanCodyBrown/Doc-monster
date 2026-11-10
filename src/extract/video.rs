@@ -13,7 +13,7 @@ use super::{Out, screen, subtitles};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 fn clock(secs: u64) -> String {
     if secs >= 3600 {
@@ -24,7 +24,7 @@ fn clock(secs: u64) -> String {
 }
 
 fn probe(path: &Path) -> Option<Value> {
-    let out = Command::new("ffprobe")
+    let out = crate::tools::command("ffprobe")
         .args([
             "-v",
             "error",
@@ -205,7 +205,7 @@ fn from_probe(p: &Value, fallback: &str, size: u64, ext: &str) -> Details {
 }
 
 fn embedded_subtitles(path: &Path) -> Option<String> {
-    let out = Command::new("ffmpeg")
+    let out = crate::tools::command("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(path)
         .args(["-map", "0:s:0", "-f", "srt", "-"])

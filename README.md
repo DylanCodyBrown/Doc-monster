@@ -147,7 +147,8 @@ details say how many changes there were and how many were actually read.
 
 Speed: a 10-minute 720p film takes about 30 seconds; slides and screen recordings, which change
 less often, are much faster. `--screen-lang spa` (or `eng+spa`) reads other languages.
-`--max-frames N` reads at most N frames; anything skipped that way is listed under Not included. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)).
+`--max-frames N` reads at most N frames; anything skipped that way is listed under Not included. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)), except with the
+[Linux binary](<Linux Binary/README.md>), which has them built in.
 Speech itself is not transcribed; without subtitles the output says so.
 
 ## How the summary works
@@ -243,5 +244,6 @@ Unless you explicitly state otherwise, any contribution you intentionally submit
 this project, as defined in the Apache 2.0 license, is dual licensed as above, without any
 additional terms or conditions.
 
-FFmpeg and Tesseract are separate programs with their own licenses; Doc Monster runs them but does
-not include them.
+FFmpeg and Tesseract are separate programs with their own licenses; Doc Monster runs them. The
+[Linux binary](<Linux Binary/README.md>) carries copies of them, and their licenses are in
+[`Linux Binary/licenses`](<Linux Binary/licenses>).

@@ -431,7 +431,8 @@ fn video_on_screen_text_is_read_and_merged_with_what_is_said() {
 }
 
 // Builds a PATH holding FFmpeg but not Tesseract out of symbolic links, which needs Unix.
-#[cfg(unix)]
+// A build with its own FFmpeg and Tesseract never misses them.
+#[cfg(all(unix, not(feature = "bundled-tools")))]
 #[test]
 fn missing_tesseract_is_a_clear_error() {
     if !has("ffmpeg") {
@@ -506,4 +507,21 @@ fn a_frame_limit_is_reported_never_silent() {
         md.contains("changed 4 times; text was read in 4") && !md.contains("--max-frames"),
         "{md}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn files_reached_through_a_link_are_eaten() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::create_dir(d.join("real")).unwrap();
+    std::fs::create_dir(d.join("links")).unwrap();
+    std::fs::write(d.join("real/pets.txt"), "A short report about pets.\n").unwrap();
+    std::os::unix::fs::symlink(d.join("real/pets.txt"), d.join("links/pets.txt")).unwrap();
+    // Given directly, and found inside a folder.
+    let (ok, log) = run(&["feed", d.join("links/pets.txt").to_str().unwrap(), "-q"]);
+    assert!(ok && d.join("links/pets.md").exists(), "{log}");
+    std::fs::remove_file(d.join("links/pets.md")).unwrap();
+    let (ok, log) = run(&["feed", d.join("links").to_str().unwrap(), "-q"]);
+    assert!(ok && d.join("links/pets.md").exists(), "{log}");
 }

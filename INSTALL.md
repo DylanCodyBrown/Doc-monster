@@ -12,6 +12,10 @@ file for your computer (`doc-monster-windows-x86_64.zip`, `doc-monster-macos-arm
 somewhere on your `PATH`. You still need step 2 below (FFmpeg and Tesseract) for videos; you do
 not need Rust.
 
+**Linux, with nothing else to install:** [`Linux Binary/doc-monster`](<Linux Binary/README.md>)
+in this repository is one static file with FFmpeg and Tesseract built in, so it handles videos
+without step 2. It runs on any 64-bit Intel or AMD Linux.
+
 macOS may refuse to open a downloaded program the first time; allow it once with
 `xattr -d com.apple.quarantine ./doc-monster`.
 

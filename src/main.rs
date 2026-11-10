@@ -524,7 +524,8 @@ fn collect_files(inputs: &[PathBuf]) -> Found {
             .into_iter()
             .flatten()
         {
-            if entry.file_type().is_file() {
+            // Links to files count; links to folders are not followed (they can loop).
+            if entry.file_type().is_file() || (entry.path_is_symlink() && entry.path().is_file()) {
                 found.files.push(entry.into_path());
             }
         }
