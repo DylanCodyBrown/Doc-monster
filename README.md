@@ -1,17 +1,13 @@
 # Doc Monster
 
 ```
-                               .-~~~~~~~~~-.
-                             .'             '.
-                           /  (o)         (O)  \
-            ___           |                     |
-           |=- |          |  .'^^^^^^^^^^^^^'.  |
-           |-= |   -->    |  (    G U L P    )  |
-           |___|          |  '.vvvvvvvvvvvvv.'  |
-                        o=|                     |=o
-                           \   ~   ~   ~   ~   /
-                            '~._  _.~~~._  _.~'
-                              '    :     '  :
+ .-~~~-.   Doc Monster 0.1.0
+( o   o )  drop files or folders here, then press Enter
+(  \_/  )  hungry. empty line quits
+ '~^~^~'   › report.docx
+
+  ✓ report.docx → report.md
+  1 eaten · 0.2s
 ```
 
 **Doc Monster eats documents and leaves clean, readable Markdown beside them, with a
@@ -49,8 +45,9 @@ afterwards, `-o folder` to collect outputs elsewhere, `--overwrite`, `--no-summa
 
 ### Drag and drop
 
-Run `doc-monster` (or `feed` / `gorge` without a path) and the monster waits with its mouth open:
-drag files or folders onto the terminal window and press Enter. It understands the way every
+Run `doc-monster` (or `feed` / `gorge` without a path) and the monster, a small slime pet, waits
+beside the prompt: drag files or folders onto the terminal window and press Enter. Its face shows
+how the last meal went. It understands the way every
 terminal writes a dropped file: backslash-escaped spaces (macOS Terminal, iTerm), single quotes
 (Linux terminals), double quotes (Windows Terminal, PowerShell, Command Prompt) and `file://`
 addresses. Drop several at once if you like; an empty line quits.
@@ -221,7 +218,8 @@ writes `INDEX.v2.md` instead and leaves yours alone.
   touched. Its own outputs (and its indexes) are skipped when you run it on the same folder again.
 - `--no-summary` converts and cleans without a summary.
 - **Scripts and agents:** `--json` prints a machine-readable report, exit codes are `0` / `1` / `2`,
-  and the monster only appears in an interactive terminal.
+  and the pet, colours and progress line only appear in an interactive terminal (`NO_COLOR` turns
+  colours off).
 - **Not yet:** scanned pages and images (needs text recognition), PDF headings and tables, slide
   decks (`.pptx`), e-books, speech in videos without subtitles, merged cells in legacy `.doc`
   tables.

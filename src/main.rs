@@ -1,5 +1,5 @@
 mod dropped;
-mod monster;
+mod ui;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
@@ -10,15 +10,12 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 thread_local! {
     /// Message of the last crash inside a reader on this thread, reported for that file alone.
     static LAST_CRASH: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-/// Batches up to this size get a chomp per file; bigger ones get one monster for the lot.
-const ANIMATE_EACH_UP_TO: usize = 12;
 use walkdir::WalkDir;
 
 /// Doc Monster: eats documents, writes clean Markdown with a hierarchical summary beside each one.
@@ -70,7 +67,7 @@ struct IndexArgs {
     /// Print only errors.
     #[arg(short, long)]
     quiet: bool,
-    /// Never draw the animated monster.
+    /// Never draw the pet or the progress line.
     #[arg(long)]
     no_anim: bool,
 }
@@ -116,7 +113,7 @@ struct Args {
     /// Print only errors and the final count.
     #[arg(short, long)]
     quiet: bool,
-    /// Never draw the animated monster (it is only drawn in an interactive terminal anyway).
+    /// Never draw the pet or the progress line (they only appear in an interactive terminal anyway).
     #[arg(long)]
     no_anim: bool,
 }
@@ -196,16 +193,22 @@ fn eat_or_wait(args: Args) -> Result<i32> {
     run_eat(&piped)
 }
 
-/// Interactive: the monster waits; each line of dragged-in paths is eaten when Enter is pressed.
+/// Interactive: the pet waits beside the prompt; each line of dragged-in paths is eaten when
+/// Enter is pressed.
 fn drop_mode(args: Args) -> Result<i32> {
-    let monster = monster::Monster::new(!args.no_anim && !args.json && !args.quiet);
-    monster.hello();
-    println!("Drag files or folders onto this window and press Enter. Empty line or q to quit.");
+    let ui = ui::Ui::new(!args.no_anim && !args.json && !args.quiet);
+    if !ui.shows_pet() {
+        println!(
+            "Drag files or folders onto this window and press Enter. Empty line or q to quit."
+        );
+    }
     let mut worst = 0;
+    let (mut mood, mut status) = (ui::Mood::Hungry, ui.hungry());
     let stdin = std::io::stdin();
+    let mut first = true;
     loop {
-        print!("feed me > ");
-        std::io::stdout().flush().ok();
+        ui.pet_prompt(mood, &status, first);
+        first = false;
         let mut line = String::new();
         if stdin.lock().read_line(&mut line)? == 0 {
             println!();
@@ -216,11 +219,15 @@ fn drop_mode(args: Args) -> Result<i32> {
         }
         let mut batch = args.clone();
         batch.inputs = dropped::parse(&line);
-        match run_eat(&batch) {
-            Ok(code) => worst = worst.max(code),
+        match eat(&batch, &ui) {
+            Ok(b) => {
+                worst = worst.max(b.code);
+                (mood, status) = ui.after_meal(b.converted, b.failed);
+            }
             Err(e) => {
                 eprintln!("error: {e:#}");
                 worst = worst.max(1);
+                (mood, status) = ui.after_meal(0, 0);
             }
         }
     }
@@ -280,6 +287,7 @@ fn build_indexes(
     keep_duplicates: bool,
     quiet: bool,
     json: bool,
+    ui: &ui::Ui,
 ) -> Result<Vec<Indexed>> {
     let mut done = Vec::new();
     for folder in folders {
@@ -311,12 +319,7 @@ fn build_indexes(
             } else {
                 format!(", {} duplicate outputs removed", deleted.len())
             };
-            println!(
-                "index {} ({} files, {} unique{extra})",
-                plan.path.display(),
-                plan.files,
-                plan.unique
-            );
+            ui.indexed(&plan.path, plan.files, plan.unique, &extra);
         }
         done.push(Indexed {
             folder: folder.display().to_string(),
@@ -330,25 +333,36 @@ fn build_indexes(
 }
 
 fn run_index(a: &IndexArgs) -> Result<i32> {
-    let monster = monster::Monster::new(!a.no_anim && !a.json && !a.quiet);
-    let result = monster.eat("Markdown files", Duration::from_millis(900), || {
-        build_indexes(&a.folders, a.keep_duplicates, a.quiet, a.json)
-    });
-    let done = result?;
-    monster.burp(done.iter().map(|d| d.files).sum());
+    let ui = ui::Ui::new(!a.no_anim && !a.json && !a.quiet);
+    let done = ui.working(a.folders.len(), |t| {
+        t.start("Markdown files");
+        build_indexes(&a.folders, a.keep_duplicates, a.quiet, a.json, &ui)
+    })?;
     if a.json {
         println!("{}", serde_json::to_string_pretty(&done)?);
     }
     Ok(0)
 }
 
+/// What a batch did, for the exit code and the pet's mood.
+struct Batch {
+    code: i32,
+    converted: usize,
+    failed: usize,
+}
+
 fn run_eat(args: &Args) -> Result<i32> {
+    let ui = ui::Ui::new(!args.no_anim && !args.json && !args.quiet);
+    Ok(eat(args, &ui)?.code)
+}
+
+fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
     let found = collect_files(&args.inputs);
     if found.files.is_empty() && found.missing.is_empty() {
         bail!("no documents found in the given inputs");
     }
 
-    let monster = monster::Monster::new(!args.no_anim && !args.json && !args.quiet);
+    let started = std::time::Instant::now();
     let opts = extract::Options {
         max_rows: args.max_rows,
         screen_lang: args.screen_lang.clone(),
@@ -368,7 +382,7 @@ fn run_eat(args: &Args) -> Result<i32> {
         .collect();
     for p in &found.missing {
         if !args.json {
-            eprintln!("spat  {}: not found", p.display());
+            ui.spat(p, "not found");
         }
     }
 
@@ -384,40 +398,30 @@ fn run_eat(args: &Args) -> Result<i32> {
             Err(anyhow!("the reader crashed on this file ({why})"))
         })
     };
-    let n = found.files.len();
-    let done: Vec<Result<(PathBuf, bool)>> = if monster.enabled() && n <= ANIMATE_EACH_UP_TO {
-        // Keep the show to a few seconds: a short chomp per file.
-        let per_file = Duration::from_millis((2500 / n.max(1) as u64).clamp(200, 900));
+    // Every processor core at once, with one progress line for the batch.
+    let done: Vec<Result<(PathBuf, bool)>> = ui.working(found.files.len(), |tracker| {
         found
             .files
-            .iter()
-            .zip(&plan)
+            .par_iter()
+            .zip(plan.par_iter())
             .map(|job| {
-                let name = job
-                    .0
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .unwrap_or("document");
-                monster.eat(name, per_file, || convert_one(job))
+                tracker.start(
+                    job.0
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("document"),
+                );
+                let r = convert_one(job);
+                tracker.finish();
+                r
             })
             .collect()
-    } else {
-        // Every processor core at once; one monster eats the whole batch.
-        let all = || {
-            found
-                .files
-                .par_iter()
-                .zip(plan.par_iter())
-                .map(convert_one)
-                .collect()
-        };
-        monster.eat(&format!("{n} documents"), Duration::from_millis(900), all)
-    };
+    });
     for (path, result) in found.files.iter().zip(done) {
         results.push(match result {
             Ok((out, condensed)) => {
                 if !args.json && !args.quiet {
-                    println!("ate   {} -> {}", path.display(), out.display());
+                    ui.ate(path, &out);
                 }
                 Outcome {
                     source: path.display().to_string(),
@@ -429,7 +433,7 @@ fn run_eat(args: &Args) -> Result<i32> {
             }
             Err(e) => {
                 if !args.json {
-                    eprintln!("spat  {}: {e:#}", path.display());
+                    ui.spat(path, &format!("{e:#}"));
                 }
                 Outcome {
                     source: path.display().to_string(),
@@ -444,14 +448,13 @@ fn run_eat(args: &Args) -> Result<i32> {
 
     let converted = results.iter().filter(|r| r.ok).count();
     let failed = results.len() - converted;
-    monster.burp(converted);
     // With --index, each folder given (or the --out folder) gets its INDEX.md afterwards.
     let indexes = if args.index {
         let folders: Vec<PathBuf> = match &args.out {
             Some(o) => vec![o.clone()],
             None => args.inputs.iter().filter(|p| p.is_dir()).cloned().collect(),
         };
-        build_indexes(&folders, false, args.quiet, args.json)?
+        build_indexes(&folders, false, args.quiet, args.json, ui)?
     } else {
         Vec::new()
     };
@@ -465,14 +468,13 @@ fn run_eat(args: &Args) -> Result<i32> {
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        let skipped = if found.skipped > 0 {
-            format!(", {} earlier outputs skipped", found.skipped)
-        } else {
-            String::new()
-        };
-        println!("done: {converted} converted, {failed} failed{skipped}");
+        ui.done(converted, failed, found.skipped, started.elapsed());
     }
-    Ok(if failed > 0 { 1 } else { 0 })
+    Ok(Batch {
+        code: if failed > 0 { 1 } else { 0 },
+        converted,
+        failed,
+    })
 }
 
 const VIDEO: &[&str] = &[

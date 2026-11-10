@@ -545,7 +545,10 @@ fn spreadsheets_and_csv_files_are_described_by_structure_never_by_their_values()
         "{md}"
     );
     let summary = &md[md.find("## Summary").unwrap()..md.find("## Full content").unwrap()];
-    assert!(summary.contains("Columns: `Name`, `Region`, `Revenue`"), "{summary}");
+    assert!(
+        summary.contains("Columns: `Name`, `Region`, `Revenue`"),
+        "{summary}"
+    );
     for value in ["Acme", "1200", "900", "average", "most common"] {
         assert!(!summary.contains(value), "{value} in {summary}");
     }
