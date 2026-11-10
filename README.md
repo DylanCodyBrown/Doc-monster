@@ -228,3 +228,19 @@ cargo run --release --example make_corpus -- out    # generate big, ugly test do
 `tests/fixtures/sample.doc` is a real legacy Word file made by LibreOffice. The readers have also
 been run against the Pandoc and Apache POI test suites (about 3,300 real documents from many
 different programs).
+
+## License
+
+Doc Monster is free to use, change and share, under either of
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT license](LICENSE-MIT)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in
+this project, as defined in the Apache 2.0 license, is dual licensed as above, without any
+additional terms or conditions.
+
+FFmpeg and Tesseract are separate programs with their own licenses; Doc Monster runs them but does
+not include them.

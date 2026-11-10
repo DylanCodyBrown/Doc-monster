@@ -2,6 +2,12 @@
 name = "doc-monster"
 version = "0.1.0"
 edition = "2024"
+description = "Eats documents, writes clean Markdown with a notebook-style summary beside each one. Free, offline, no model."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/DylanCodyBrown/Doc-monster"
+readme = "README.md"
+keywords = ["markdown", "summary", "docx", "ocr", "converter"]
+categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
 anyhow = "1.0.104"
