@@ -96,20 +96,62 @@ fn front_matter_is_a_comment_a_title_and_a_description_nothing_else() {
 }
 
 #[test]
-fn condensed_flag_leaves_only_the_summary() {
+fn compression_levels_shrink_the_output_and_ten_leaves_only_the_summary() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("handbook.md"), long_markdown()).unwrap();
-    let out = dir.path().join("out");
-    let (ok, log) = run(&[
-        dir.path().join("handbook.md").to_str().unwrap(),
-        "-o",
-        out.to_str().unwrap(),
-        "--condensed",
-    ]);
-    assert!(ok, "{log}");
-    let text = std::fs::read_to_string(out.join("handbook.md")).unwrap();
-    assert!(text.contains("## Summary") && !text.contains("## Full content"));
-    assert!(text.len() < long_markdown().len() / 2);
+    let src = dir.path().join("handbook.md");
+    std::fs::write(&src, long_markdown()).unwrap();
+    let mut sizes = Vec::new();
+    for level in ["1", "5", "10"] {
+        let out = dir.path().join(format!("out{level}"));
+        let (ok, log) = run(&[
+            src.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--compress",
+            level,
+        ]);
+        assert!(ok, "{log}");
+        let text = std::fs::read_to_string(out.join("handbook.md")).unwrap();
+        match level {
+            "1" => assert!(
+                text.starts_with("---\n# Condensed with Doc Monster\n")
+                    && text.contains("## Full content"),
+                "{text}"
+            ),
+            "5" => {
+                assert!(
+                    text.starts_with("---\n# Condensed with Doc Monster, compression 5 of 10\n"),
+                    "{text}"
+                );
+                assert!(
+                    text.contains("## Compressed content")
+                        && text.contains("% of the words (compression 5 of 10)"),
+                    "{text}"
+                );
+                for h in ["## Saving data", "## Money", "## Security"] {
+                    assert!(text.contains(h), "every section survives: {text}");
+                }
+            }
+            _ => assert!(
+                text.contains("## Summary")
+                    && !text.contains("## Full content")
+                    && !text.contains("## Compressed content")
+            ),
+        }
+        sizes.push(text.len());
+    }
+    assert!(sizes[0] > sizes[1] && sizes[1] > sizes[2], "{sizes:?}");
+}
+
+#[test]
+fn compression_outside_one_to_ten_is_refused() {
+    for bad in ["0", "11", "x"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+            .args(["README.md", "--compress", bad])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "--compress {bad}");
+    }
 }
 
 #[test]

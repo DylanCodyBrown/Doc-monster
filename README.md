@@ -31,7 +31,8 @@ Markdown: point it at a file or a folder and it gobbles everything.
 cargo install --git https://github.com/DylanCodyBrown/Doc-monster --locked
 doc-monster report.docx          # writes report.md beside it
 doc-monster ./inbox              # every document in the folder, recursively
-doc-monster notes.md --condensed # summary only
+doc-monster notes.md -c 5        # compression 5 of 10: about 40% of the words
+doc-monster notes.md -c 10       # summary only
 doc-monster index ./notes        # one INDEX.md for every Markdown file in the folder
 ```
 
@@ -100,6 +101,27 @@ hidden sheets are labelled, and merged table cells keep columns aligned.
 
 Data files get a plain-English description of their shape instead ("`players` is a list of 500
 items; `coins` ranges from 42 to 9,998").
+
+## How compressed: `--compress 1` to `10`
+
+| Level | You get |
+| --- | --- |
+| **1** (default) | The summary, then the whole cleaned document. Nothing is removed. |
+| **2 to 9** | The summary, then the document itself, shortened: its most informative sentences from every section, in their original order, with headings and formatting kept. |
+| **10** | The summary only. |
+
+Approximate share of the words kept, measured on the 45,000-word Pandoc manual:
+
+| Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Kept | 84% | 72% | 56% | 46% | 37% | 28% | 22% | 18% |
+
+Every section keeps at least one sentence, so documents with many short sections stay a little
+longer at the high levels. Repeats go first, more strictly as the level rises: from level 2,
+sentences repeated word for word; from 5, the same sentence with different numbers; from 7,
+near-duplicates. Tables are kept up to level 3, code up to level 4. The front matter comment says
+the level (`# Condensed with Doc Monster, compression 5 of 10`) and the "Not included" line says
+how much was cut.
 
 ## One index for a whole folder
 

@@ -9,8 +9,11 @@
 //!    already chosen anywhere in the digest.
 //! 4. Render an overview, key phrases, and a nested outline whose depth adapts to size.
 
+mod compress;
 pub(crate) mod nlp;
 mod tree;
+
+pub use compress::{Compressed, KEEP as KEEP_BY_LEVEL, compress};
 
 use std::collections::{HashMap, HashSet};
 use tree::{Kind, Node};
@@ -105,7 +108,7 @@ const POINTS_BACK: &[&str] = &[
     "other",
 ];
 
-fn points_back(text: &str) -> bool {
+pub(crate) fn points_back(text: &str) -> bool {
     let first: String = text
         .chars()
         .take_while(|c| c.is_alphabetic())

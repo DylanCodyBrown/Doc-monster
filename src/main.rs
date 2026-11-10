@@ -79,9 +79,11 @@ struct Args {
     /// Convert and clean only, without the summary.
     #[arg(long)]
     no_summary: bool,
-    /// Write only the summary, leaving out the full converted content.
-    #[arg(long)]
-    condensed: bool,
+    /// How compressed the output is, 1 to 10. 1: summary and the full document (default).
+    /// 2-9: summary and the document shortened (2 keeps about 80% of the words, 5 about 40%,
+    /// 9 about 7%). 10: summary only.
+    #[arg(short, long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=10))]
+    compress: u8,
     /// Skip the Markdown cleanup pass (keep the converted text exactly as extracted).
     #[arg(long)]
     raw: bool,
@@ -517,11 +519,49 @@ fn process(
         .or_else(|| digest::first_sentence(&doc.markdown))
         .map(|d| render::tidy_description(&d))
         .unwrap_or_default();
+    // The body at the requested compression: whole, shortened, or (level 10) none.
+    let level = args.compress;
+    let body: Option<String> = match level {
+        1 => Some(doc.markdown.clone()),
+        10 if summary.is_some() => None,
+        10 => bail!(
+            "compression 10 keeps only the summary, and this file has none; use a lower level"
+        ),
+        _ => {
+            let c = digest::compress(&doc.markdown, level);
+            if c.words_after < c.words_before && c.words_before > 0 {
+                let cut = 100 - (c.words_after * 100 / c.words_before);
+                doc.omitted.push(format!(
+                    "about {cut}% of the words (compression {level} of 10)"
+                ));
+            }
+            if c.tables_dropped > 0 {
+                doc.omitted.push(format!(
+                    "{} table{}",
+                    c.tables_dropped,
+                    if c.tables_dropped == 1 { "" } else { "s" }
+                ));
+            }
+            if c.code_dropped > 0 {
+                doc.omitted.push(format!(
+                    "{} code block{}",
+                    c.code_dropped,
+                    if c.code_dropped == 1 { "" } else { "s" }
+                ));
+            }
+            Some(c.markdown)
+        }
+    };
+    if level == 10 {
+        doc.omitted
+            .push("the document body (compression 10 of 10: summary only)".into());
+    }
     let rendered = render::render(
         &doc,
         &description,
         summary.as_ref().map(|(t, _)| t.as_str()),
-        !args.condensed || summary.is_none(),
+        body.as_deref(),
+        level,
     );
 
     std::fs::write(out, rendered).with_context(|| format!("writing {}", out.display()))?;

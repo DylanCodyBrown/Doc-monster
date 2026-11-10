@@ -135,10 +135,11 @@ fn parse(root: &Path, path: &Path) -> Result<Doc> {
     )
     .replace("\r\n", "\n");
     let comment = front_comment(&text).map(str::to_string);
-    let ours = matches!(
-        comment.as_deref(),
-        Some("# Condensed with Doc Monster" | "# Converted with Doc Monster")
-    );
+    // "# Condensed with Doc Monster" may be followed by ", compression 5 of 10".
+    let ours = comment.as_deref().is_some_and(|c| {
+        c.starts_with("# Condensed with Doc Monster")
+            || c.starts_with("# Converted with Doc Monster")
+    });
     let (fm, body) = crate::extract::split_front_matter(&text);
     let field = |key: &str| -> Option<String> {
         fm?.lines().find_map(|l| {
@@ -150,7 +151,10 @@ fn parse(root: &Path, path: &Path) -> Result<Doc> {
     };
     // For our own outputs compare the document itself, not the summary written on top of it.
     let content = if ours {
-        match body.split_once("\n## Full content\n") {
+        match body
+            .split_once("\n## Full content\n")
+            .or_else(|| body.split_once("\n## Compressed content\n"))
+        {
             Some((_, full)) => full,
             None => body,
         }

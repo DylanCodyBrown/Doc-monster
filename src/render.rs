@@ -1,20 +1,26 @@
 use crate::Document;
 
 /// Final Markdown file: a minimal front matter (title, description, and a comment saying how it
-/// was made), then the summary (if any), then the complete cleaned content.
+/// was made), then the summary (if any), then the body: the full cleaned document at compression
+/// level 1, a shortened one at levels 2-9, none at level 10 (`body` is `None`).
 pub fn render(
     doc: &Document,
     description: &str,
     summary: Option<&str>,
-    include_full: bool,
+    body: Option<&str>,
+    level: u8,
 ) -> String {
     let mut out = String::new();
     out.push_str("---\n");
     out.push_str(if summary.is_some() {
-        "# Condensed with Doc Monster\n"
+        "# Condensed with Doc Monster"
     } else {
-        "# Converted with Doc Monster\n"
+        "# Converted with Doc Monster"
     });
+    if level > 1 {
+        out.push_str(&format!(", compression {level} of 10"));
+    }
+    out.push('\n');
     out.push_str(&format!("title: {}\n", yaml_string(&doc.title)));
     out.push_str(&format!("description: {}\n", yaml_string(description)));
     out.push_str("---\n\n");
@@ -24,17 +30,20 @@ pub fn render(
             doc.omitted.join("; ")
         ));
     }
-
     if let Some(text) = summary {
         out.push_str("## Summary\n\n");
         out.push_str(text.trim());
         out.push('\n');
-        if include_full {
-            out.push_str("\n---\n\n## Full content\n\n");
+        if body.is_some() {
+            out.push_str(if level == 1 {
+                "\n---\n\n## Full content\n\n"
+            } else {
+                "\n---\n\n## Compressed content\n\n"
+            });
         }
     }
-    if include_full || summary.is_none() {
-        out.push_str(doc.markdown.trim_end());
+    if let Some(b) = body {
+        out.push_str(b.trim_end());
         out.push('\n');
     }
     out
@@ -80,7 +89,7 @@ mod tests {
 
     #[test]
     fn front_matter_is_title_description_and_comment_only() {
-        let out = render(&doc(), "About it.", Some("short"), true);
+        let out = render(&doc(), "About it.", Some("short"), Some("body text\n"), 1);
         assert!(out.starts_with("---\n# Condensed with Doc Monster\ntitle: \"T \\\"q\\\"\"\ndescription: \"About it.\"\n---\n\n"), "{out}");
         assert!(out.contains("## Summary\n\nshort") && out.contains("body text"));
         assert_eq!(
@@ -92,10 +101,14 @@ mod tests {
     }
 
     #[test]
-    fn condensed_flag_omits_full_content_and_no_summary_says_converted() {
-        let out = render(&doc(), "d", Some("short"), false);
+    fn level_ten_omits_the_body_and_no_summary_says_converted() {
+        let out = render(&doc(), "d", Some("short"), None, 10);
         assert!(!out.contains("body text") && !out.contains("Full content"));
-        let out = render(&doc(), "d", None, true);
+        assert!(
+            out.starts_with("---\n# Condensed with Doc Monster, compression 10 of 10\n"),
+            "{out}"
+        );
+        let out = render(&doc(), "d", None, Some("body text\n"), 1);
         assert!(
             out.contains("# Converted with Doc Monster")
                 && out.contains("body text")
