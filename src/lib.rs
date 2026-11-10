@@ -1,18 +1,18 @@
 //! Doc Monster: eats documents, produces Markdown.
 //!
 //! Pipeline: detect format -> extract (structure preserving) -> clean ->
-//! digest (hierarchical, no model needed; a local model is optional) -> render Markdown.
+//! digest (hierarchical, computed locally, no model) -> render Markdown.
+//! Separately, `index` builds one INDEX.md for a folder of Markdown files.
 //!
 //! Quality rule: the summary is *added* to the output, never substituted for
 //! the extracted content. Nothing from the source is thrown away.
 
-pub mod chunk;
 pub mod clean;
 pub mod digest;
 pub mod extract;
+pub mod index;
 pub mod profile;
 pub mod render;
-pub mod summarize;
 
 use std::path::PathBuf;
 

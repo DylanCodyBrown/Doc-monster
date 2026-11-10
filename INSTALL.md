@@ -61,16 +61,13 @@ doc-monster --version
 doc-monster --help
 ```
 
-## 4. Optional extras
+## 4. Optional extra
 
-Doc Monster works without these; they add capabilities.
+Doc Monster works without this; it adds capabilities.
 
 | Extra | What it adds | macOS | Linux (Debian / Ubuntu) | Windows |
 | --- | --- | --- | --- | --- |
 | FFmpeg (`ffprobe`, `ffmpeg`) | Details, chapters and embedded subtitles for every video format (mp4 works without it) | `brew install ffmpeg` | `sudo apt install ffmpeg` | `winget install --id Gyan.FFmpeg -e` |
-| Ollama | Reworded summaries from a local model (`--backend ollama`) | `brew install ollama` | `curl -fsSL https://ollama.com/install.sh \| sh` | `winget install --id Ollama.Ollama -e` |
-
-After installing Ollama, download a small model once: `ollama pull qwen2.5:1.5b`.
 
 ## Using it from scripts and agents
 

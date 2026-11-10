@@ -120,8 +120,7 @@ fn legacy_binary_word_document_keeps_headings_lists_and_tables() {
         fixture.to_str().unwrap(),
         "-o",
         out.path().to_str().unwrap(),
-        "--backend",
-        "none",
+        "--no-summary",
     ]);
     assert!(ok, "{log}");
     let text = std::fs::read_to_string(out.path().join("sample.md")).unwrap();
@@ -241,4 +240,45 @@ fn no_animation_or_escape_codes_when_not_in_a_terminal() {
         !log.contains('\x1b'),
         "piped output must be plain text: {log:?}"
     );
+}
+
+#[test]
+fn index_command_writes_one_index_at_the_top_merges_and_removes_only_our_duplicates() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::create_dir_all(d.join("team")).unwrap();
+    std::fs::write(d.join("handbook.md"), long_markdown()).unwrap();
+    std::fs::write(d.join("team/copy-of-handbook.md"), long_markdown()).unwrap(); // a user's own duplicate
+    // Convert twice: the second run adds .v3 copies, which are Doc Monster duplicates.
+    assert!(run(&[d.to_str().unwrap()]).0);
+    assert!(run(&[d.to_str().unwrap()]).0);
+    assert!(d.join("handbook.v3.md").exists());
+
+    let (ok, log) = run(&["index", d.to_str().unwrap()]);
+    assert!(ok, "{log}");
+    let index = std::fs::read_to_string(d.join("INDEX.md")).unwrap();
+    assert!(
+        index.starts_with("---\n# Indexed with Doc Monster\n"),
+        "{index}"
+    );
+    // Only one index, at the top; none in the subfolder.
+    assert!(!d.join("team/INDEX.md").exists());
+    // All handbook copies are one document.
+    assert!(index.contains("1 unique documents"), "{index}");
+    // User files are never deleted; our extra copies are.
+    assert!(d.join("handbook.md").exists() && d.join("team/copy-of-handbook.md").exists());
+    assert!(
+        d.join("handbook.v2.md").exists(),
+        "one Doc Monster copy is kept"
+    );
+    assert!(
+        !d.join("handbook.v3.md").exists() && !d.join("team/copy-of-handbook.v3.md").exists(),
+        "{log}"
+    );
+
+    // The index is never eaten as a document, and rebuilding reuses INDEX.md.
+    let (ok, log) = run(&[d.to_str().unwrap(), "--index"]);
+    assert!(ok, "{log}");
+    assert!(!d.join("INDEX.v2.md").exists(), "{log}");
+    assert!(!log.contains("INDEX.md ->"), "{log}");
 }

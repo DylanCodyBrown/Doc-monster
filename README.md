@@ -32,6 +32,7 @@ cargo install --git https://github.com/DylanCodyBrown/Doc-monster --locked
 doc-monster report.docx          # writes report.md beside it
 doc-monster ./inbox              # every document in the folder, recursively
 doc-monster notes.md --condensed # summary only
+doc-monster index ./notes        # one INDEX.md for every Markdown file in the folder
 ```
 
 New to Rust? [INSTALL.md](INSTALL.md) has copy-paste commands for macOS, Linux and Windows
@@ -100,14 +101,34 @@ hidden sheets are labelled, and merged table cells keep columns aligned.
 Data files get a plain-English description of their shape instead ("`players` is a list of 500
 items; `coins` ranges from 42 to 9,998").
 
-Want reworded summaries instead of quotes? `--backend ollama` uses a small local model (see
-[INSTALL.md](INSTALL.md)).
+## One index for a whole folder
+
+```bash
+doc-monster index ./notes      # just build the index
+doc-monster ./inbox --index    # convert everything, then build the index
+```
+
+`INDEX.md` is written once, at the top of the folder (the one file that is not placed beside a
+source). It lists every Markdown file inside, grouped by subfolder, with its title, description,
+size and keywords, and **dedups everything it can**:
+
+- **Duplicate files** become one entry, even when one copy was cleaned or rewrapped
+  (`notes.md` and its cleaned `notes.v2.md` match).
+- **Rerun copies** that Doc Monster made of the same source (`notes.v3.md`, `notes.v4.md`) are
+  deleted. Your own files are never deleted; `--keep-duplicates` keeps the copies too.
+- **Repeated passages** that appear in several documents are listed once, with where they appear.
+- **Key terms** from all documents are merged into one list, counted by how many documents use
+  them.
+
+Running it again updates the same `INDEX.md`. If you already have your own `INDEX.md`, Doc Monster
+writes `INDEX.v2.md` instead and leaves yours alone.
 
 ## Good to know
 
 - Output goes **beside each source**; if the name is taken it writes `name.v2.md`, `name.v3.md`.
   `--overwrite` replaces Doc Monster's own earlier output, and files it did not write are never
-  touched. Its own outputs are skipped when you run it on the same folder again.
+  touched. Its own outputs (and its indexes) are skipped when you run it on the same folder again.
+- `--no-summary` converts and cleans without a summary.
 - **Scripts and agents:** `--json` prints a machine-readable report, exit codes are `0` / `1` / `2`,
   and the monster only appears in an interactive terminal.
 - **Not yet:** scanned pages and images (needs text recognition), PDF headings and tables, slide

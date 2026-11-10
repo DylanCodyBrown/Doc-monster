@@ -1,11 +1,8 @@
 mod monster;
 
 use anyhow::{Context, Result, anyhow, bail};
-use clap::{Parser, ValueEnum};
-use doc_monster::{
-    clean, digest, extract, render,
-    summarize::{Ollama, Summarizer, summarize_document},
-};
+use clap::{Parser, Subcommand};
+use doc_monster::{clean, digest, extract, index, render};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -22,21 +19,49 @@ thread_local! {
 const ANIMATE_EACH_UP_TO: usize = 12;
 use walkdir::WalkDir;
 
-#[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
-enum Backend {
-    /// Notebook-style hierarchical digest computed locally: free, offline, no model.
-    Digest,
-    /// Summaries from a local Ollama model (optional, still free and offline).
-    Ollama,
-    /// Convert and clean only, no summary.
-    None,
-}
-
 /// Doc Monster: eats documents, writes clean Markdown with a hierarchical summary beside each one.
 ///
-/// Exit codes: 0 every file converted, 1 some files failed, 2 bad arguments or nothing to do.
+/// Exit codes: 0 everything worked, 1 some files failed, 2 bad arguments or nothing to do.
 #[derive(Parser)]
-#[command(version)]
+#[command(
+    version,
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+    #[command(flatten)]
+    eat: Args,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Build INDEX.md at the top of each folder, listing every Markdown file inside once,
+    /// with duplicates merged and Doc Monster's own duplicate copies removed.
+    Index(IndexArgs),
+}
+
+#[derive(clap::Args)]
+struct IndexArgs {
+    /// Folders to index (searched recursively).
+    #[arg(required = true)]
+    folders: Vec<PathBuf>,
+    /// Keep Doc Monster's duplicate outputs on disk (they are still merged in the index).
+    #[arg(long)]
+    keep_duplicates: bool,
+    /// Print a JSON report on standard output instead of text.
+    #[arg(long)]
+    json: bool,
+    /// Print only errors.
+    #[arg(short, long)]
+    quiet: bool,
+    /// Never draw the animated monster.
+    #[arg(long)]
+    no_anim: bool,
+}
+
+#[derive(clap::Args)]
 struct Args {
     /// Files or folders to consume (folders are searched recursively).
     #[arg(required = true)]
@@ -48,8 +73,12 @@ struct Args {
     /// Files Doc Monster did not write are never replaced.
     #[arg(long)]
     overwrite: bool,
-    #[arg(long, value_enum, default_value = "digest")]
-    backend: Backend,
+    /// Afterwards, build INDEX.md for each folder given (or for the --out folder).
+    #[arg(long)]
+    index: bool,
+    /// Convert and clean only, without the summary.
+    #[arg(long)]
+    no_summary: bool,
     /// Write only the summary, leaving out the full converted content.
     #[arg(long)]
     condensed: bool,
@@ -59,7 +88,7 @@ struct Args {
     /// Most rows read per spreadsheet sheet or CSV file.
     #[arg(long, default_value_t = 5000)]
     max_rows: usize,
-    /// Print a JSON report on standard output instead of text (for scripts and agents).
+    /// Print a JSON report on standard output instead of text.
     #[arg(long)]
     json: bool,
     /// Print only errors and the final count.
@@ -68,14 +97,15 @@ struct Args {
     /// Never draw the animated monster (it is only drawn in an interactive terminal anyway).
     #[arg(long)]
     no_anim: bool,
-    /// Local model name as known to Ollama (only with --backend ollama).
-    #[arg(long, default_value = "qwen2.5:1.5b")]
-    model: String,
-    #[arg(long, default_value = "http://localhost:11434")]
-    ollama_url: String,
-    /// Maximum characters sent to the model per request.
-    #[arg(long, default_value_t = 6000)]
-    chunk_chars: usize,
+}
+
+#[derive(Serialize)]
+struct Indexed {
+    folder: String,
+    index: String,
+    files: usize,
+    unique: usize,
+    deleted: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -95,6 +125,8 @@ struct Report {
     /// Earlier Doc Monster outputs found among the inputs and left alone.
     skipped: usize,
     results: Vec<Outcome>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    indexes: Vec<Indexed>,
 }
 
 fn main() {
@@ -109,7 +141,15 @@ fn main() {
 }
 
 fn run() -> Result<i32> {
-    let args = Args::parse();
+    let cli = Cli::parse();
+    install_crash_hook();
+    match cli.command {
+        Some(Command::Index(a)) => run_index(&a),
+        None => run_eat(&cli.eat),
+    }
+}
+
+fn install_crash_hook() {
     // A bug in any reader (ours or a library's) must cost one file, never the whole batch.
     std::panic::set_hook(Box::new(|info| {
         let msg = info
@@ -130,7 +170,77 @@ fn run() -> Result<i32> {
             .unwrap_or_default();
         LAST_CRASH.with(|last| *last.borrow_mut() = format!("{msg}{at}"));
     }));
-    let summarizer = pick_summarizer(&args)?;
+}
+
+/// Build (and write) the index for each folder; deletes our duplicate outputs unless told not to.
+fn build_indexes(
+    folders: &[PathBuf],
+    keep_duplicates: bool,
+    quiet: bool,
+    json: bool,
+) -> Result<Vec<Indexed>> {
+    let mut done = Vec::new();
+    for folder in folders {
+        let plan = index::plan(folder)?;
+        let mut deleted = Vec::new();
+        if !keep_duplicates {
+            for p in &plan.duplicates_to_delete {
+                // Belt and braces: only ever delete files Doc Monster wrote.
+                if is_ours(p) && std::fs::remove_file(p).is_ok() {
+                    deleted.push(p.display().to_string());
+                }
+            }
+        }
+        let markdown = if keep_duplicates {
+            plan.markdown
+                .replace("Duplicate copies removed:", "Duplicate copies:")
+                .replace(
+                    "duplicate Doc Monster outputs removed",
+                    "duplicate Doc Monster outputs kept",
+                )
+        } else {
+            plan.markdown
+        };
+        std::fs::write(&plan.path, markdown)
+            .with_context(|| format!("writing {}", plan.path.display()))?;
+        if !quiet && !json {
+            let extra = if deleted.is_empty() {
+                String::new()
+            } else {
+                format!(", {} duplicate outputs removed", deleted.len())
+            };
+            println!(
+                "index {} ({} files, {} unique{extra})",
+                plan.path.display(),
+                plan.files,
+                plan.unique
+            );
+        }
+        done.push(Indexed {
+            folder: folder.display().to_string(),
+            index: plan.path.display().to_string(),
+            files: plan.files,
+            unique: plan.unique,
+            deleted,
+        });
+    }
+    Ok(done)
+}
+
+fn run_index(a: &IndexArgs) -> Result<i32> {
+    let monster = monster::Monster::new(!a.no_anim && !a.json && !a.quiet);
+    let result = monster.eat("Markdown files", Duration::from_millis(900), || {
+        build_indexes(&a.folders, a.keep_duplicates, a.quiet, a.json)
+    });
+    let done = result?;
+    monster.burp(done.iter().map(|d| d.files).sum());
+    if a.json {
+        println!("{}", serde_json::to_string_pretty(&done)?);
+    }
+    Ok(0)
+}
+
+fn run_eat(args: &Args) -> Result<i32> {
     let found = collect_files(&args.inputs);
     if found.files.is_empty() && found.missing.is_empty() {
         bail!("no documents found in the given inputs");
@@ -159,11 +269,11 @@ fn run() -> Result<i32> {
     }
 
     // Output names are decided up front, so files converted in parallel never race for a name.
-    let plan = plan_outputs(&found.files, &args);
+    let plan = plan_outputs(&found.files, args);
     let convert_one = |(path, out): (&PathBuf, &Result<PathBuf>)| -> Result<(PathBuf, bool)> {
         let out = out.as_ref().map_err(|e| anyhow!("{e:#}"))?;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            process(path, out, &args, &opts, summarizer.as_deref())
+            process(path, out, args, &opts)
         }))
         .unwrap_or_else(|_| {
             let why = LAST_CRASH.with(|m| m.borrow().clone());
@@ -231,12 +341,23 @@ fn run() -> Result<i32> {
     let converted = results.iter().filter(|r| r.ok).count();
     let failed = results.len() - converted;
     monster.burp(converted);
+    // With --index, each folder given (or the --out folder) gets its INDEX.md afterwards.
+    let indexes = if args.index {
+        let folders: Vec<PathBuf> = match &args.out {
+            Some(o) => vec![o.clone()],
+            None => args.inputs.iter().filter(|p| p.is_dir()).cloned().collect(),
+        };
+        build_indexes(&folders, false, args.quiet, args.json)?
+    } else {
+        Vec::new()
+    };
     if args.json {
         let report = Report {
             converted,
             failed,
             skipped: found.skipped,
             results,
+            indexes,
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -248,24 +369,6 @@ fn run() -> Result<i32> {
         println!("done: {converted} converted, {failed} failed{skipped}");
     }
     Ok(if failed > 0 { 1 } else { 0 })
-}
-
-fn pick_summarizer(args: &Args) -> Result<Option<Box<dyn Summarizer>>> {
-    if args.backend != Backend::Ollama {
-        return Ok(None);
-    }
-    let o = Ollama {
-        url: args.ollama_url.trim_end_matches('/').to_string(),
-        model: args.model.clone(),
-    };
-    if !o.is_ready()? {
-        bail!(
-            "model '{}' is not pulled; run: ollama pull {}",
-            o.model,
-            o.model
-        );
-    }
-    Ok(Some(Box::new(o)))
 }
 
 const VIDEO: &[&str] = &[
@@ -292,6 +395,7 @@ fn is_ours(path: &Path) -> bool {
     let text = String::from_utf8_lossy(&head[..n]).replace("\r\n", "\n");
     text.starts_with("---\n# Condensed with Doc Monster")
         || text.starts_with("---\n# Converted with Doc Monster")
+        || text.starts_with(&format!("---\n{}", index::MARKER))
 }
 
 struct Found {
@@ -385,7 +489,6 @@ fn process(
     out: &Path,
     args: &Args,
     opts: &extract::Options,
-    summarizer: Option<&dyn Summarizer>,
 ) -> Result<(PathBuf, bool)> {
     let mut doc = extract::extract_with(path, opts)?;
     // A document holding only pictures or equations still gets a file saying so.
@@ -399,21 +502,13 @@ fn process(
         note = report.describe();
     }
     // (summary text, most representative sentence)
-    let summary: Option<(String, Option<String>)> = match (args.backend, summarizer) {
-        (Backend::None, _) => None,
+    let summary: Option<(String, Option<String>)> = if args.no_summary {
+        None
+    } else if let Some(s) = doc.summary.clone() {
         // The reader already described the file (e.g. the shape of a data file).
-        _ if doc.summary.is_some() => doc.summary.clone().map(|s| (s, None)),
-        (Backend::Ollama, Some(s)) => {
-            let text =
-                summarize_document(s, &doc.markdown, args.chunk_chars).context("summarizing")?;
-            let lead = text
-                .lines()
-                .map(|l| l.trim_start_matches(['-', '*', ' ']))
-                .find(|l| !l.is_empty())
-                .map(str::to_string);
-            Some((text, lead))
-        }
-        _ => digest::digest(&doc.markdown, note.as_deref()).map(|d| (d.markdown, d.lead)),
+        Some((s, None))
+    } else {
+        digest::digest(&doc.markdown, note.as_deref()).map(|d| (d.markdown, d.lead))
     };
     let description = doc
         .description

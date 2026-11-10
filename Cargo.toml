@@ -22,7 +22,6 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 serde_norway = "0.9.42"
 thiserror = "2.0.21"
 toml = "1.2.1"
-ureq = { version = "3.5.1", default-features = false, features = ["json"] }
 walkdir = "2.5.0"
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 

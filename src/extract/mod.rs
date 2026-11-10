@@ -376,6 +376,11 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
     })
 }
 
+/// Split a leading YAML front matter block off Markdown text: (front matter, rest).
+pub fn split_front_matter(text: &str) -> (Option<&str>, &str) {
+    text::split_front_matter(text)
+}
+
 /// First level-one heading in Markdown, if any.
 pub(crate) fn first_heading(markdown: &str) -> Option<String> {
     markdown

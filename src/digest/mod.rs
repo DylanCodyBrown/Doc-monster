@@ -9,7 +9,7 @@
 //!    already chosen anywhere in the digest.
 //! 4. Render an overview, key phrases, and a nested outline whose depth adapts to size.
 
-mod nlp;
+pub(crate) mod nlp;
 mod tree;
 
 use std::collections::{HashMap, HashSet};
