@@ -73,8 +73,8 @@ pub struct Options {
     pub max_rows: usize,
     /// Tesseract language code(s) for on-screen text, e.g. "eng" or "eng+spa".
     pub screen_lang: String,
-    /// Most video frames read for on-screen text.
-    pub max_frames: usize,
+    /// Most video frames whose text is read (`None`: every frame where the screen changed).
+    pub max_frames: Option<usize>,
 }
 
 impl Default for Options {
@@ -82,7 +82,7 @@ impl Default for Options {
         Options {
             max_rows: 5000,
             screen_lang: "eng".into(),
-            max_frames: 300,
+            max_frames: None,
         }
     }
 }

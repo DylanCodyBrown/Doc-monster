@@ -360,7 +360,14 @@ pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out
                 .map_err(|_| anyhow!("on-screen text reader crashed")),
         )
     });
-    let (spoken, screens) = (spoken??, screens??);
+    let (spoken, captured) = (spoken??, screens??);
+    if captured.changed > 0 {
+        md.push_str(&format!(
+            "The screen changed {} times; text was read in {} of those frames (the rest showed a screen already read).\n\n",
+            captured.changed, captured.read
+        ));
+    }
+    let screens = captured.screens;
     let chapters = chapters(&probe);
 
     // Then assemble the score.
@@ -371,6 +378,12 @@ pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out
     md.push_str(&assemble(&mut notes));
 
     let mut out_omitted = Vec::new();
+    if captured.skipped_by_limit > 0 {
+        out_omitted.push(format!(
+            "on-screen text at {} of {} changed moments (limit set with --max-frames)",
+            captured.skipped_by_limit, captured.changed
+        ));
+    }
     if spoken.is_empty() {
         out_omitted.push("speech (no subtitles found, and speech is not transcribed)".to_string());
     }

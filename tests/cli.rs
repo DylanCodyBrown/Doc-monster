@@ -470,3 +470,39 @@ fn missing_tesseract_is_a_clear_error() {
     );
     assert!(!out.path().join("slides.md").exists());
 }
+
+#[test]
+fn a_frame_limit_is_reported_never_silent() {
+    if !has("ffmpeg") || !has("tesseract") {
+        eprintln!("skipped: needs FFmpeg and Tesseract");
+        return;
+    }
+    let out = tempfile::tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slides.mkv");
+    let (ok, log) = run(&[
+        fixture.to_str().unwrap(),
+        "-o",
+        out.path().to_str().unwrap(),
+        "--max-frames",
+        "1",
+    ]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(out.path().join("slides.md")).unwrap();
+    assert!(
+        md.contains("on-screen text at 3 of 4 changed moments (limit set with --max-frames)"),
+        "{md}"
+    );
+    // Without the limit every screen is read.
+    let out = tempfile::tempdir().unwrap();
+    let (ok, log) = run(&[
+        fixture.to_str().unwrap(),
+        "-o",
+        out.path().to_str().unwrap(),
+    ]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(out.path().join("slides.md")).unwrap();
+    assert!(
+        md.contains("changed 4 times; text was read in 4") && !md.contains("--max-frames"),
+        "{md}"
+    );
+}

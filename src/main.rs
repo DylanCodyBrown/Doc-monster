@@ -106,9 +106,10 @@ struct Args {
     /// Language of on-screen text, as Tesseract codes: eng, spa, deu, or several like eng+spa.
     #[arg(long, default_value = "eng")]
     screen_lang: String,
-    /// Most video frames read for on-screen text (one is taken whenever the screen changes).
-    #[arg(long, default_value_t = 300)]
-    max_frames: usize,
+    /// Read on-screen text in at most this many video frames (default: every frame where the
+    /// screen changed; anything skipped is listed under Not included).
+    #[arg(long)]
+    max_frames: Option<usize>,
     /// Print a JSON report on standard output instead of text.
     #[arg(long)]
     json: bool,
@@ -351,7 +352,7 @@ fn run_eat(args: &Args) -> Result<i32> {
     let opts = extract::Options {
         max_rows: args.max_rows,
         screen_lang: args.screen_lang.clone(),
-        max_frames: args.max_frames.max(1),
+        max_frames: args.max_frames.map(|m| m.max(1)),
     };
 
     let mut results: Vec<Outcome> = found

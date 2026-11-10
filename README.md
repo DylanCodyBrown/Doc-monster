@@ -138,9 +138,15 @@ assembled into one timeline, in time order.
 First, how we save player data safely.
 ```
 
-Speed: about 1.8 seconds of work per minute of 720p video; decoding the video is most of it.
-`--screen-lang spa` (or `eng+spa`) reads other languages and `--max-frames` caps the number of
-screens read. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)).
+Every frame is decoded (encoded video stores changes between frames, so there is no way to
+know what is on screen without decoding up to it), but text is only read where the picture
+changed, and a **hash table** of every screen already read means a screen shown again later (a
+slide revisited, a repeated title card) reuses its text instead of being read again. Each video's
+details say how many changes there were and how many were actually read.
+
+Speed: a 10-minute 720p film takes about 30 seconds; slides and screen recordings, which change
+less often, are much faster. `--screen-lang spa` (or `eng+spa`) reads other languages.
+`--max-frames N` reads at most N frames; anything skipped that way is listed under Not included. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)).
 Speech itself is not transcribed; without subtitles the output says so.
 
 ## How the summary works

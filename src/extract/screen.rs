@@ -179,34 +179,97 @@ fn overlap(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
     a.intersection(b).count() as f32 / a.union(b).count() as f32
 }
 
-pub fn capture(video: &Path, lang: &str, max_frames: usize) -> Result<Vec<Screen>> {
+/// What the screen track found, with counts that say how much work the hash table saved.
+pub struct Captured {
+    pub screens: Vec<Screen>,
+    /// Frames where the picture changed (after FFmpeg's change detection).
+    pub changed: usize,
+    /// Of those, frames whose text was actually read by Tesseract.
+    pub read: usize,
+    /// Changed frames not read because of `--max-frames`.
+    pub skipped_by_limit: usize,
+}
+
+/// `max_frames`: most frames read by Tesseract (`None` = every changed frame).
+pub fn capture(video: &Path, lang: &str, max_frames: Option<usize>) -> Result<Captured> {
     let dir = scratch_dir();
     std::fs::create_dir_all(&dir).context("creating a folder for video frames")?;
     let result = read_while_decoding(video, &dir, lang, max_frames);
     let _ = std::fs::remove_dir_all(&dir);
-    Ok(merge(result?))
+    let (frames, stats) = result?;
+    Ok(Captured {
+        screens: merge(frames),
+        changed: stats.0,
+        read: stats.1,
+        skipped_by_limit: stats.2,
+    })
 }
 
 fn frame_path(dir: &Path, n: usize) -> PathBuf {
     dir.join(format!("f{n:06}.png"))
 }
 
-/// Run FFmpeg, and read each frame with Tesseract as soon as FFmpeg has finished writing it.
-/// Returns (seconds, cleaned lines) in frame order.
+/// Size of the thumbnail used as each frame's fingerprint.
+const THUMB_W: usize = 64;
+const THUMB_H: usize = 36;
+const THUMB: usize = THUMB_W * THUMB_H;
+
+/// Hash-table key of a thumbnail: one bit per cell of an 8x4 grid, set where the cell is
+/// brighter than the thumbnail's average. Identical screens always share a key.
+fn bucket(thumb: &[u8]) -> u32 {
+    let mean = thumb.iter().map(|&p| u32::from(p)).sum::<u32>() / THUMB as u32;
+    let mut key = 0u32;
+    for gy in 0..4 {
+        for gx in 0..8 {
+            let mut sum = 0u32;
+            for y in gy * 9..(gy + 1) * 9 {
+                for x in gx * 8..(gx + 1) * 8 {
+                    sum += u32::from(thumb[y * THUMB_W + x]);
+                }
+            }
+            if sum / 72 > mean {
+                key |= 1 << (gy * 8 + gx);
+            }
+        }
+    }
+    key
+}
+
+/// Two thumbnails show the same screen only if no area differs noticeably. Strict on purpose:
+/// two slides on the same template but with different text must count as different.
+fn same_screen(a: &[u8], b: &[u8]) -> bool {
+    a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 6)
+}
+
+/// Run FFmpeg; read each changed frame with Tesseract as soon as FFmpeg has written it, unless
+/// the hash table of screens already seen says its text is known.
+/// Returns (seconds, cleaned lines) in frame order and (changed, read, skipped by limit).
+#[allow(clippy::type_complexity)]
 fn read_while_decoding(
     video: &Path,
     dir: &Path,
     lang: &str,
-    max_frames: usize,
-) -> Result<Vec<(u32, Vec<String>)>> {
+    max_frames: Option<usize>,
+) -> Result<(Vec<(u32, Vec<String>)>, (usize, usize, usize))> {
+    let graph = "[0:v]fps=1,mpdecimate=hi=768:lo=320:frac=0.33:max=30,showinfo,split=2[f][t];\
+                 [f]scale='min(1920,iw)':-2,format=gray[full];[t]scale=64:36:flags=area,format=gray[thumb]";
     let mut child = Command::new("ffmpeg")
         .args(["-v", "info", "-nostdin", "-i"])
         .arg(video)
-        .args(["-an", "-sn", "-vf", "fps=1,mpdecimate=hi=768:lo=320:frac=0.33:max=30,showinfo,scale='min(1920,iw)':-2,format=gray"])
-        .args(["-fps_mode", "vfr", "-frames:v", &max_frames.to_string()])
+        .args(["-filter_complex", graph])
+        .args(["-map", "[full]", "-fps_mode", "vfr"])
         .arg(dir.join("f%06d.png"))
+        .args([
+            "-map",
+            "[thumb]",
+            "-fps_mode",
+            "vfr",
+            "-f",
+            "rawvideo",
+            "pipe:1",
+        ])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .context("starting ffmpeg")?;
@@ -229,36 +292,83 @@ fn read_while_decoding(
             .map(|t| t.max(0.0) as u32)
             .collect::<Vec<u32>>()
     });
+    // ...and each kept frame's thumbnail on standard output.
+    let thumbs: std::sync::Arc<Mutex<Vec<Vec<u8>>>> = Default::default();
+    let thumbs_in = thumbs.clone();
+    let mut stdout = child.stdout.take().expect("piped");
+    let thumbs_done = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = vec![0u8; THUMB];
+        while stdout.read_exact(&mut buf).is_ok() {
+            thumbs_in.lock().unwrap().push(buf.clone());
+        }
+    });
 
     let read: Mutex<Vec<(usize, Vec<String>)>> = Mutex::new(Vec::new());
+    // Hash table of screens already sent to Tesseract: bucket key -> frame numbers.
+    let mut seen: std::collections::HashMap<u32, Vec<usize>> = std::collections::HashMap::new();
+    let mut copy_of: Vec<(usize, usize)> = Vec::new();
+    let (mut sent, mut ocr_count, mut skipped) = (0usize, 0usize, 0usize);
     rayon::scope(|workers| -> Result<()> {
-        let mut sent = 0usize;
         loop {
             let finished = child.try_wait()?.is_some();
+            if finished {
+                let _ = thumbs_done.is_finished();
+            }
             // Frame n is complete once frame n+1 exists, or once FFmpeg has exited.
             while frame_path(dir, sent + 1).exists()
                 && (finished || frame_path(dir, sent + 2).exists())
             {
+                let thumb = thumbs.lock().unwrap().get(sent).cloned();
+                if thumb.is_none() && !finished {
+                    break; // its thumbnail has not arrived yet
+                }
                 sent += 1;
-                let (frame, read) = (frame_path(dir, sent), &read);
+                if let Some(t) = &thumb {
+                    let key = bucket(t);
+                    let known = seen.get(&key).and_then(|list| {
+                        let all = thumbs.lock().unwrap();
+                        list.iter().copied().find(|&k| same_screen(&all[k - 1], t))
+                    });
+                    if let Some(k) = known {
+                        copy_of.push((sent, k));
+                        continue;
+                    }
+                    seen.entry(key).or_default().push(sent);
+                }
+                if max_frames.is_some_and(|m| ocr_count >= m) {
+                    skipped += 1;
+                    continue;
+                }
+                ocr_count += 1;
+                let (frame, read, n) = (frame_path(dir, sent), &read, sent);
                 workers.spawn(move |_| {
                     let lines = clean(&ocr(&frame, lang));
-                    read.lock().unwrap().push((sent, lines));
+                    read.lock().unwrap().push((n, lines));
                 });
             }
-            if finished {
+            if finished && !frame_path(dir, sent + 1).exists() {
                 return Ok(());
             }
-            std::thread::sleep(std::time::Duration::from_millis(25));
+            std::thread::sleep(std::time::Duration::from_millis(15));
         }
     })?;
+    let _ = thumbs_done.join();
     let times = times.join().unwrap_or_default();
     let mut read = read.into_inner().unwrap();
+    // Screens seen before get the text read the first time.
+    let known: std::collections::HashMap<usize, Vec<String>> = read.iter().cloned().collect();
+    read.extend(
+        copy_of
+            .into_iter()
+            .filter_map(|(n, k)| Some((n, known.get(&k)?.clone()))),
+    );
     read.sort_by_key(|r| r.0);
-    Ok(read
+    let frames = read
         .into_iter()
         .filter_map(|(n, lines)| Some((*times.get(n - 1)?, lines)))
-        .collect())
+        .collect();
+    Ok((frames, (sent, ocr_count, skipped)))
 }
 
 /// Drop frames without real text and merge consecutive frames of the same screen.
@@ -301,6 +411,27 @@ fn merge(read: Vec<(u32, Vec<String>)>) -> Vec<Screen> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hash_table_matches_the_same_screen_but_not_a_different_slide() {
+        let blank = vec![240u8; THUMB];
+        let mut slide_a = blank.clone();
+        let mut slide_b = blank.clone();
+        // Two "slides" on the same template: a title bar, then text in different rows.
+        for x in 4..60 {
+            slide_a[3 * THUMB_W + x] = 20;
+            slide_b[3 * THUMB_W + x] = 20;
+            slide_a[12 * THUMB_W + x] = 60;
+            slide_b[20 * THUMB_W + x] = 60;
+        }
+        let mut a_again = slide_a.clone();
+        a_again[100] = a_again[100].saturating_sub(3); // compression noise
+        assert!(same_screen(&slide_a, &a_again) && bucket(&slide_a) == bucket(&a_again));
+        assert!(
+            !same_screen(&slide_a, &slide_b),
+            "different text on the same template is a different screen"
+        );
+    }
 
     #[test]
     fn misread_bullets_become_list_items_and_noise_is_dropped() {
