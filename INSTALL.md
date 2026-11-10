@@ -61,6 +61,9 @@ doc-monster --version
 doc-monster --help
 ```
 
+On Windows you can also pin `%USERPROFILE%\.cargo\bin\doc-monster.exe` to the desktop or
+make a shortcut to it: dragging files onto it converts them.
+
 ## 4. Optional extra
 
 Doc Monster works without this; it adds capabilities.
@@ -74,7 +77,7 @@ Doc Monster works without this; it adds capabilities.
 The same command works in bash, PowerShell and the Command Prompt:
 
 ```
-doc-monster ./inbox --json
+doc-monster gorge ./inbox --json
 ```
 
 - **Output files:** each document's Markdown is written beside it (`report.docx` → `report.md`;
@@ -86,7 +89,9 @@ doc-monster ./inbox --json
   `2` bad arguments or nothing to do.
 - **No animation when piped:** the monster is drawn only in an interactive terminal; `--no-anim`
   turns it off there too, and `--quiet` prints only errors and the final count.
-- Paths with spaces need quotes, as usual in every shell: `doc-monster "My Documents/report.docx"`.
+- Paths with spaces need quotes, as usual in every shell: `doc-monster feed "My Documents/report.docx"`.
+- Paths can also be piped in, one per line: `ls *.docx | doc-monster gorge` (bash) or
+  `Get-ChildItem *.docx | % FullName | doc-monster gorge` (PowerShell).
 
 ## Update or remove
 

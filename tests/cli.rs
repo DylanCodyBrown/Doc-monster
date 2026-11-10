@@ -324,3 +324,68 @@ fn index_command_writes_one_index_at_the_top_merges_and_removes_only_our_duplica
     assert!(!d.join("INDEX.v2.md").exists(), "{log}");
     assert!(!log.contains("INDEX.md ->"), "{log}");
 }
+
+#[test]
+fn feed_gorge_and_regurgitate_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(
+            d.join(name),
+            format!("A short note called {name} about pets.\n"),
+        )
+        .unwrap();
+    }
+    // feed: one file.
+    let (ok, log) = run(&["feed", d.join("a.txt").to_str().unwrap(), "-c", "10"]);
+    assert!(ok && d.join("a.md").exists(), "{log}");
+    // feed refuses several paths and points at gorge.
+    let (ok, log) = run(&[
+        "feed",
+        d.join("a.txt").to_str().unwrap(),
+        d.join("b.txt").to_str().unwrap(),
+    ]);
+    assert!(!ok && log.contains("use gorge"), "{log}");
+    // gorge (and the "gourge" spelling): several paths.
+    let (ok, log) = run(&["gorge", d.join("b.txt").to_str().unwrap()]);
+    assert!(ok && d.join("b.md").exists(), "{log}");
+    let (ok, log) = run(&["gourge", d.join("c.txt").to_str().unwrap()]);
+    assert!(ok && d.join("c.md").exists(), "{log}");
+    // regurgitate: the index.
+    let (ok, log) = run(&["regurgitate", d.to_str().unwrap()]);
+    assert!(ok && d.join("INDEX.md").exists(), "{log}");
+}
+
+#[test]
+fn paths_can_be_piped_in_the_way_terminals_write_dropped_files() {
+    use std::io::Write as _;
+    let dir = tempfile::tempdir().unwrap();
+    let spaced = dir.path().join("My Report.txt");
+    std::fs::write(&spaced, "A short report about pets.\n").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+        .arg("gorge")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Quoted, as Linux and Windows terminals write a dropped file.
+    writeln!(child.stdin.take().unwrap(), "'{}'", spaced.display()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(dir.path().join("My Report.md").exists());
+}
+
+#[test]
+fn nothing_to_eat_is_an_error_not_a_hang() {
+    let out = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+        .arg("gorge")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}

@@ -29,12 +29,33 @@ Markdown: point it at a file or a folder and it gobbles everything.
 
 ```bash
 cargo install --git https://github.com/DylanCodyBrown/Doc-monster --locked
-doc-monster report.docx          # writes report.md beside it
-doc-monster ./inbox              # every document in the folder, recursively
-doc-monster notes.md -c 5        # compression 5 of 10: about 45% of the words
-doc-monster notes.md -c 10       # summary only
-doc-monster index ./notes        # one INDEX.md for every Markdown file in the folder
+doc-monster feed report.docx              # writes report.md beside it
+doc-monster gorge a.pdf b.xlsx ./inbox    # many files and folders at once
+doc-monster feed notes.md -c 5            # compression 5 of 10: about 45% of the words
+doc-monster regurgitate ./notes           # one INDEX.md for every Markdown file in the folder
+doc-monster                               # drop mode: drag files onto the window, press Enter
 ```
+
+| Command | What it does |
+| --- | --- |
+| `feed <path>` | Eat one file or folder (folders are searched recursively). |
+| `gorge <paths...>` | Eat many files and folders at once (`gourge` works too). |
+| `regurgitate <folders...>` | Build `INDEX.md` for a folder of Markdown, merging duplicates (`index` works too). |
+
+`feed` and `gorge` take the same options: `-c 1-10` compression, `--index` to build the index
+afterwards, `-o folder` to collect outputs elsewhere, `--overwrite`, `--no-summary`, `--raw`,
+`--max-rows`, `--json`, `--quiet`, `--no-anim`. `doc-monster <command> --help` lists them all.
+
+### Drag and drop
+
+Run `doc-monster` (or `feed` / `gorge` without a path) and the monster waits with its mouth open:
+drag files or folders onto the terminal window and press Enter. It understands the way every
+terminal writes a dropped file: backslash-escaped spaces (macOS Terminal, iTerm), single quotes
+(Linux terminals), double quotes (Windows Terminal, PowerShell, Command Prompt) and `file://`
+addresses. Drop several at once if you like; an empty line quits.
+
+On Windows you can also drag files straight onto `doc-monster.exe` (or a shortcut to it) in
+File Explorer; the window stays open until you press Enter so you can read the results.
 
 New to Rust? [INSTALL.md](INSTALL.md) has copy-paste commands for macOS, Linux and Windows
 (bash, PowerShell and Command Prompt).
@@ -126,8 +147,8 @@ how much was cut.
 ## One index for a whole folder
 
 ```bash
-doc-monster index ./notes      # just build the index
-doc-monster ./inbox --index    # convert everything, then build the index
+doc-monster regurgitate ./notes     # just build the index
+doc-monster gorge ./inbox --index   # convert everything, then build the index
 ```
 
 `INDEX.md` is written once, at the top of the folder (the one file that is not placed beside a

@@ -189,6 +189,20 @@ impl Monster {
         })
     }
 
+    /// The hungry monster, shown when waiting for files to be dropped in.
+    pub fn hello(&self) {
+        if !self.enabled {
+            return;
+        }
+        let mut out = String::new();
+        for b in body(Mouth::Wide, false) {
+            out.push_str(&self.paint(&b, "32"));
+            out.push('\n');
+        }
+        out.push_str(&format!("{}\n", self.paint("   Feed me documents!", "1")));
+        let _ = std::io::stderr().write_all(out.as_bytes());
+    }
+
     /// The satisfied monster, shown once at the end.
     pub fn burp(&self, eaten: usize) {
         if !self.enabled || eaten == 0 {

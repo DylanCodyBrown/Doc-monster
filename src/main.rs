@@ -1,3 +1,4 @@
+mod dropped;
 mod monster;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -7,6 +8,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -21,10 +23,16 @@ use walkdir::WalkDir;
 
 /// Doc Monster: eats documents, writes clean Markdown with a hierarchical summary beside each one.
 ///
+///   doc-monster feed report.docx          eat one file or folder
+///   doc-monster gorge a.pdf b.xlsx ./docs eat many at once
+///   doc-monster regurgitate ./docs        build INDEX.md for a folder of Markdown
+///   doc-monster                           drop mode: drag files onto the window, press Enter
+///
 /// Exit codes: 0 everything worked, 1 some files failed, 2 bad arguments or nothing to do.
 #[derive(Parser)]
 #[command(
     version,
+    verbatim_doc_comment,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true
 )]
@@ -37,9 +45,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Eat one file or folder. Without a path, waits for you to drag one onto the window.
+    Feed(Args),
+    /// Eat many files and folders at once. Without paths, waits for you to drag them in.
+    #[command(alias = "gourge")]
+    Gorge(Args),
     /// Build INDEX.md at the top of each folder, listing every Markdown file inside once,
     /// with duplicates merged and Doc Monster's own duplicate copies removed.
-    Index(IndexArgs),
+    #[command(alias = "index")]
+    Regurgitate(IndexArgs),
 }
 
 #[derive(clap::Args)]
@@ -61,10 +75,9 @@ struct IndexArgs {
     no_anim: bool,
 }
 
-#[derive(clap::Args)]
+#[derive(clap::Args, Clone)]
 struct Args {
-    /// Files or folders to consume (folders are searched recursively).
-    #[arg(required = true)]
+    /// Files or folders to eat (folders are searched recursively). Leave out to drag and drop.
     inputs: Vec<PathBuf>,
     /// Write all Markdown into this folder instead of beside each source file.
     #[arg(short, long)]
@@ -145,10 +158,90 @@ fn main() {
 fn run() -> Result<i32> {
     let cli = Cli::parse();
     install_crash_hook();
-    match cli.command {
-        Some(Command::Index(a)) => run_index(&a),
-        None => run_eat(&cli.eat),
+    let code = match cli.command {
+        Some(Command::Regurgitate(a)) => run_index(&a),
+        Some(Command::Feed(a)) if a.inputs.len() > 1 => {
+            bail!("feed eats one file or folder; use gorge for several")
+        }
+        Some(Command::Feed(a)) | Some(Command::Gorge(a)) => eat_or_wait(a),
+        // Bare paths, e.g. files dropped onto the program's icon: same as gorge.
+        None => eat_or_wait(cli.eat),
+    };
+    hold_window_if_opened_by_drop();
+    code
+}
+
+/// With paths, eat them. Without: drop mode in a terminal, or read paths piped in.
+fn eat_or_wait(args: Args) -> Result<i32> {
+    if !args.inputs.is_empty() {
+        return run_eat(&args);
     }
+    if std::io::stdin().is_terminal() {
+        return drop_mode(args);
+    }
+    let mut piped = args.clone();
+    for line in std::io::stdin().lock().lines() {
+        piped.inputs.extend(dropped::parse(&line?));
+    }
+    if piped.inputs.is_empty() {
+        bail!("nothing to eat: give a path, or run in a terminal and drag files in");
+    }
+    run_eat(&piped)
+}
+
+/// Interactive: the monster waits; each line of dragged-in paths is eaten when Enter is pressed.
+fn drop_mode(args: Args) -> Result<i32> {
+    let monster = monster::Monster::new(!args.no_anim && !args.json && !args.quiet);
+    monster.hello();
+    println!("Drag files or folders onto this window and press Enter. Empty line or q to quit.");
+    let mut worst = 0;
+    let stdin = std::io::stdin();
+    loop {
+        print!("feed me > ");
+        std::io::stdout().flush().ok();
+        let mut line = String::new();
+        if stdin.lock().read_line(&mut line)? == 0 {
+            println!();
+            break;
+        }
+        if matches!(line.trim(), "" | "q" | "quit" | "exit") {
+            break;
+        }
+        let mut batch = args.clone();
+        batch.inputs = dropped::parse(&line);
+        match run_eat(&batch) {
+            Ok(code) => worst = worst.max(code),
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                worst = worst.max(1);
+            }
+        }
+    }
+    Ok(worst)
+}
+
+/// On Windows, files dropped onto the program's icon open a console that would close the
+/// moment the work is done. Keep it open so the results can be read.
+fn hold_window_if_opened_by_drop() {
+    if console_is_ours_alone() && std::io::stdin().is_terminal() {
+        print!("Press Enter to close.");
+        std::io::stdout().flush().ok();
+        let mut s = String::new();
+        let _ = std::io::stdin().read_line(&mut s);
+    }
+}
+
+#[cfg(windows)]
+fn console_is_ours_alone() -> bool {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
+    let mut ids = [0u32; 4];
+    // Only this process attached means Windows made the console for us (no shell behind it).
+    unsafe { GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) == 1 }
+}
+
+#[cfg(not(windows))]
+fn console_is_ours_alone() -> bool {
+    false
 }
 
 fn install_crash_hook() {
@@ -524,9 +617,8 @@ fn process(
     let body: Option<String> = match level {
         1 => Some(doc.markdown.clone()),
         10 if summary.is_some() => None,
-        10 => bail!(
-            "compression 10 keeps only the summary, and this file has none; use a lower level"
-        ),
+        // Too short to summarise: the whole (short) text is already as small as it gets.
+        10 => Some(doc.markdown.clone()),
         _ => {
             let c = digest::compress(&doc.markdown, level);
             if c.words_after < c.words_before && c.words_before > 0 {
@@ -552,7 +644,7 @@ fn process(
             Some(c.markdown)
         }
     };
-    if level == 10 {
+    if level == 10 && body.is_none() {
         doc.omitted
             .push("the document body (compression 10 of 10: summary only)".into());
     }
