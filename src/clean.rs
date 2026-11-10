@@ -151,6 +151,11 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
         if t.starts_with(['#', '-', '*', '+', '|', '>', '<', '`']) || t.chars().next()?.is_ascii_digit() {
             return None;
         }
+        // Page headers and footers are labels, not sentences: a repeated line that ends like a
+        // sentence is real content (a refrain, a repeated warning) and must be kept.
+        if t.ends_with(['.', '!', '?', '"', '\u{201d}', ')']) {
+            return None;
+        }
         let blank = |j: Option<usize>| j.is_none_or(|j| lines.get(j).is_none_or(|x| x.text.trim().is_empty()));
         (blank(i.checked_sub(1)) && blank(Some(i + 1))).then(|| t.to_lowercase())
     };
@@ -161,6 +166,21 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
         }
     }
     counts.retain(|_, n| *n >= 4);
+    if counts.is_empty() {
+        return;
+    }
+    // Real page furniture is spread through the document (a gap of several lines between
+    // repeats), not clustered in one spot.
+    let spread = |key: &str| -> bool {
+        let at: Vec<usize> = (0..lines.len()).filter(|&i| standalone(i, lines).as_deref() == Some(key)).collect();
+        at.last().zip(at.first()).is_some_and(|(l, f)| (l - f) >= 5 * (at.len() - 1))
+    };
+    let keys: Vec<String> = counts.keys().cloned().collect();
+    for k in keys {
+        if !spread(&k) {
+            counts.remove(&k);
+        }
+    }
     if counts.is_empty() {
         return;
     }
@@ -417,6 +437,17 @@ mod tests {
         assert!(md.contains("body 3"));
         assert_eq!(r.boilerplate[0].1, 5);
         assert_eq!(r.page_markers, 5);
+    }
+
+    #[test]
+    fn repeated_sentences_are_content_not_page_furniture() {
+        let mut src = String::new();
+        for i in 0..8 {
+            src.push_str(&format!("Always wrap every call in pcall before saving.\n\nSection {i} body text here.\n\n"));
+        }
+        let (md, r) = clean(&src);
+        assert_eq!(md.matches("Always wrap every call in pcall before saving.").count(), 8, "{md}");
+        assert!(r.boilerplate.is_empty());
     }
 
     #[test]

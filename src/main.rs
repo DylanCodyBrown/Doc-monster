@@ -130,22 +130,39 @@ fn process(
         doc.markdown = cleaned;
         note = report.describe();
     }
-    let summary: Option<(String, String)> = match (args.backend, summarizer) {
+    // (summary text, most representative sentence)
+    let summary: Option<(String, Option<String>)> = match (args.backend, summarizer) {
         (Backend::None, _) => None,
+        // The reader already described the file (e.g. the shape of a data file).
+        _ if doc.summary.is_some() => doc.summary.clone().map(|s| (s, None)),
         (Backend::Ollama, Some(s)) => {
             let text = summarize_document(s, &doc.markdown, args.chunk_chars).context("summarizing")?;
-            Some((s.name(), text))
+            let lead = text.lines().map(|l| l.trim_start_matches(['-', '*', ' '])).find(|l| !l.is_empty()).map(str::to_string);
+            Some((text, lead))
         }
-        _ => digest::digest(&doc.markdown, note.as_deref())
-            .map(|d| ("hierarchical digest (no model)".to_string(), d.markdown)),
+        _ => digest::digest(&doc.markdown, note.as_deref()).map(|d| (d.markdown, d.lead)),
     };
+    let description = doc
+        .description
+        .clone()
+        .or_else(|| summary.as_ref().and_then(|(_, lead)| lead.clone()))
+        .or_else(|| digest::first_sentence(&doc.markdown))
+        .map(|d| render::tidy_description(&d))
+        .unwrap_or_default();
     let rendered = render::render(
         &doc,
-        summary.as_ref().map(|(m, t)| (m.as_str(), t.as_str())),
+        &description,
+        summary.as_ref().map(|(t, _)| t.as_str()),
         !args.condensed || summary.is_none(),
     );
 
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+    // ".env" has no stem; hidden files should not produce hidden output files.
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.trim_start_matches('.'))
+        .filter(|s| !s.is_empty())
+        .unwrap_or("document");
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     let mut name = format!("{stem}.md");
     if !used.insert(name.clone()) {

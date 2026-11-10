@@ -15,10 +15,27 @@ mod tree;
 use std::collections::{HashMap, HashSet};
 use tree::{Kind, Node};
 
+pub use nlp::plain as plain_text;
+
 pub struct Digest {
     /// Markdown for the summary section.
     pub markdown: String,
     pub words_in: usize,
+    /// The single most representative sentence of the whole document.
+    pub lead: Option<String>,
+}
+
+/// First real sentence of a document, for when there is no digest.
+pub fn first_sentence(markdown: &str) -> Option<String> {
+    fn find(n: &Node) -> Option<String> {
+        n.paras
+            .iter()
+            .flatten()
+            .find(|s| s.split_whitespace().count() >= 4)
+            .cloned()
+            .or_else(|| n.children.iter().find_map(find))
+    }
+    find(&tree::parse(markdown))
 }
 
 struct Sent {
@@ -106,6 +123,16 @@ impl Engine {
             score *= 1.1;
         }
         score
+    }
+
+    /// Highest scoring sentence of a subtree, without marking anything as used.
+    fn best(&self, node: &Node) -> Option<String> {
+        let (a, b) = node.range;
+        (a..b)
+            .filter(|&i| self.informative(i) && (6..=40).contains(&self.sents[i].words))
+            .map(|i| (i, self.score(i, node)))
+            .max_by(|x, y| x.1.total_cmp(&y.1).then(y.0.cmp(&x.0)))
+            .map(|(i, _)| self.sents[i].text.clone())
     }
 
     fn informative(&self, i: usize) -> bool {
@@ -301,6 +328,7 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
     while !eff.has_own_text() && eff.children.len() == 1 {
         eff = &eff.children[0];
     }
+    let lead = e.best(&root);
     let doc_title = eff.first_real_title().unwrap_or("").to_string();
 
     let mut out = String::new();
@@ -386,7 +414,7 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
     if let Some(note) = cleanup_note {
         out.push_str(&format!("\n_Cleanup: {note}._\n"));
     }
-    Some(Digest { markdown: out, words_in: root.words })
+    Some(Digest { markdown: out, words_in: root.words, lead })
 }
 
 #[cfg(test)]
