@@ -103,19 +103,12 @@ struct Args {
     /// Most rows read per spreadsheet sheet or CSV file.
     #[arg(long, default_value_t = 5000)]
     max_rows: usize,
-    /// Do not read the text shown on screen in videos (slides, code, captions).
-    #[arg(long)]
-    no_screen_text: bool,
     /// Language of on-screen text, as Tesseract codes: eng, spa, deu, or several like eng+spa.
     #[arg(long, default_value = "eng")]
     screen_lang: String,
     /// Most video frames read for on-screen text (one is taken whenever the screen changes).
     #[arg(long, default_value_t = 300)]
     max_frames: usize,
-    /// Faster on-screen text for long videos: look only at keyframes (about four times faster,
-    /// but slides and titles that appear between keyframes are missed).
-    #[arg(long)]
-    screen_fast: bool,
     /// Print a JSON report on standard output instead of text.
     #[arg(long)]
     json: bool,
@@ -357,10 +350,8 @@ fn run_eat(args: &Args) -> Result<i32> {
     let monster = monster::Monster::new(!args.no_anim && !args.json && !args.quiet);
     let opts = extract::Options {
         max_rows: args.max_rows,
-        screen_text: !args.no_screen_text,
         screen_lang: args.screen_lang.clone(),
         max_frames: args.max_frames.max(1),
-        screen_thorough: !args.screen_fast,
     };
 
     let mut results: Vec<Outcome> = found

@@ -1,13 +1,16 @@
 //! Video files of any common container (mp4, mov, mkv, webm, avi, wmv, flv, mpeg, ...).
 //!
-//! Details come from `ffprobe` when it is installed (all containers, chapters, tags), with a
-//! built-in mp4 reader as the fallback. A transcript comes from a subtitle file beside the video,
-//! or from a subtitle track inside it (via `ffmpeg`). Speech is NOT transcribed: that needs a
-//! speech model, which this tool avoids by default.
+//! A video is scored like a piece of music. Each instrument is a track of timed events, played
+//! on its own thread at the same time as the others; the bars (two-minute sections) and the
+//! timestamps then line them up into one timeline:
+//! - chapters, from the container (ffprobe)
+//! - spoken, from a subtitle file beside the video or a subtitle track inside it (ffmpeg)
+//! - on screen, the text shown on screen (ffmpeg frames read by Tesseract, see `screen`)
+//!
+//! FFmpeg and Tesseract are required. Speech is not transcribed; without subtitles that is said.
 
 use super::{Out, screen, subtitles};
-use anyhow::{Context, Result, bail};
-use mp4::{MediaType, Mp4Reader, TrackType};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -20,16 +23,8 @@ fn clock(secs: u64) -> String {
     }
 }
 
-enum Probe {
-    Found(Value),
-    /// ffprobe ran and rejected the file.
-    Unreadable,
-    /// ffprobe is not installed.
-    Missing,
-}
-
-fn probe(path: &Path) -> Probe {
-    let Ok(out) = Command::new("ffprobe")
+fn probe(path: &Path) -> Option<Value> {
+    let out = Command::new("ffprobe")
         .args([
             "-v",
             "error",
@@ -43,18 +38,11 @@ fn probe(path: &Path) -> Probe {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-    else {
-        return Probe::Missing;
-    };
-    match out
-        .status
+        .ok()?;
+    out.status
         .success()
         .then(|| serde_json::from_slice(&out.stdout).ok())
         .flatten()
-    {
-        Some(v) => Probe::Found(v),
-        None => Probe::Unreadable,
-    }
 }
 
 fn s<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -203,25 +191,6 @@ fn from_probe(p: &Value, fallback: &str, size: u64, ext: &str) -> Details {
     if !meta.is_empty() {
         md.push_str(&format!("## About\n\n{}\n\n", meta.join("\n")));
     }
-    let chapters: Vec<String> = p
-        .get("chapters")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|c| {
-            let start = s(c, "start_time")
-                .and_then(|t| t.parse::<f64>().ok())
-                .unwrap_or(0.0) as u64;
-            format!(
-                "- {} – {}",
-                clock(start),
-                tag(c, "title").unwrap_or("Untitled chapter")
-            )
-        })
-        .collect();
-    if !chapters.is_empty() {
-        md.push_str(&format!("## Chapters\n\n{}\n\n", chapters.join("\n")));
-    }
     let description = ["description", "synopsis", "comment"]
         .iter()
         .find_map(|k| tag(&fmt, k))
@@ -233,59 +202,6 @@ fn from_probe(p: &Value, fallback: &str, size: u64, ext: &str) -> Details {
         has_text_subtitles,
         tech,
     }
-}
-
-/// Built-in mp4/mov reader, used when ffprobe is not installed.
-fn native_mp4(path: &Path, fallback: &str, size: u64) -> Option<Details> {
-    let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
-    let reader = Mp4Reader::read_header(file, size).ok()?;
-    let mut md = format!(
-        "{fallback} is a video file (mp4, {}, {:.1} megabytes).\n\n",
-        clock(reader.duration().as_secs()),
-        size as f64 / 1_048_576.0
-    );
-    md.push_str("| Track | Kind | Details |\n| --- | --- | --- |\n");
-    let mut ids: Vec<_> = reader.tracks().keys().copied().collect();
-    ids.sort_unstable();
-    for id in ids {
-        let t = &reader.tracks()[&id];
-        let (kind, detail) = match t.track_type() {
-            Ok(TrackType::Video) => (
-                "video",
-                format!(
-                    "{} {}x{} at {:.2} frames per second",
-                    match t.media_type() {
-                        Ok(MediaType::H264) => "h264",
-                        Ok(MediaType::H265) => "hevc",
-                        Ok(MediaType::VP9) => "vp9",
-                        _ => "unknown codec",
-                    },
-                    t.width(),
-                    t.height(),
-                    t.frame_rate()
-                ),
-            ),
-            Ok(TrackType::Audio) => (
-                "audio",
-                match t.media_type() {
-                    Ok(MediaType::AAC) => "aac".to_string(),
-                    _ => "unknown codec".to_string(),
-                },
-            ),
-            Ok(TrackType::Subtitle) => ("subtitle", t.language().to_string()),
-            Err(_) => ("other", String::new()),
-        };
-        md.push_str(&format!("| {id} | {kind} | {detail} |\n"));
-    }
-    md.push('\n');
-    let tech = format!("mp4 video, {}.", clock(reader.duration().as_secs()));
-    Some(Details {
-        markdown: md,
-        title: None,
-        description: None,
-        has_text_subtitles: false,
-        tech,
-    })
 }
 
 fn embedded_subtitles(path: &Path) -> Option<String> {
@@ -301,7 +217,118 @@ fn embedded_subtitles(path: &Path) -> Option<String> {
     (out.status.success() && text.contains("-->")).then_some(text)
 }
 
+/// One timed event on a track.
+enum Part<'a> {
+    Chapter(&'a str),
+    Spoken(&'a str),
+    Shown(&'a screen::Screen),
+}
+
+impl Part<'_> {
+    /// Order within the same second: a chapter opens, then what is shown, then what is said.
+    fn rank(&self) -> u8 {
+        match self {
+            Part::Chapter(_) => 0,
+            Part::Shown(_) => 1,
+            Part::Spoken(_) => 2,
+        }
+    }
+}
+
+/// Bars of the score: two-minute sections.
+const BAR: u32 = 120;
+
+/// Lay every track onto one timeline, bar by bar, in time order.
+fn assemble(notes: &mut [(u32, Part)]) -> String {
+    notes.sort_by_key(|(t, p)| (*t, p.rank()));
+    let mut md = String::new();
+    if notes.is_empty() {
+        return md;
+    }
+    md.push_str("## Timeline\n\n");
+    let mut bar = u32::MAX;
+    let mut said: Vec<&str> = Vec::new();
+    let flush = |said: &mut Vec<&str>, md: &mut String| {
+        if !said.is_empty() {
+            md.push_str(&format!("**Spoken**\n\n{}\n\n", said.join(" ")));
+            said.clear();
+        }
+    };
+    for (t, part) in notes.iter() {
+        if t / BAR != bar {
+            flush(&mut said, &mut md);
+            bar = t / BAR;
+            md.push_str(&format!(
+                "### {} – {}\n\n",
+                subtitles::stamp(bar * BAR),
+                subtitles::stamp((bar + 1) * BAR)
+            ));
+        }
+        match part {
+            Part::Spoken(l) => said.push(l),
+            Part::Chapter(title) => {
+                flush(&mut said, &mut md);
+                md.push_str(&format!(
+                    "**Chapter at {}: {title}**\n\n",
+                    subtitles::stamp(*t)
+                ));
+            }
+            Part::Shown(sc) => {
+                flush(&mut said, &mut md);
+                md.push_str(&format!(
+                    "**On screen at {}**\n\n{}\n\n",
+                    subtitles::stamp(sc.at),
+                    sc.block
+                ));
+            }
+        }
+    }
+    flush(&mut said, &mut md);
+    md
+}
+
+/// The chapter track, from the container's chapter list.
+fn chapters(p: &Value) -> Vec<(u32, String)> {
+    p.get("chapters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let start = s(c, "start_time")
+                .and_then(|t| t.parse::<f64>().ok())
+                .unwrap_or(0.0) as u32;
+            (
+                start,
+                tag(c, "title").unwrap_or("Untitled chapter").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The spoken track: a subtitle file beside the video, or a subtitle track inside it.
+fn spoken(path: &Path, embedded: bool) -> Result<Vec<(u32, String)>> {
+    let sidecar = ["srt", "vtt", "en.srt", "en.vtt"]
+        .iter()
+        .map(|ext| path.with_extension(ext))
+        .find(|p| p.exists());
+    let text = match sidecar {
+        Some(p) => Some(super::text::decode(
+            &std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?,
+        )),
+        None if embedded => embedded_subtitles(path),
+        None => None,
+    };
+    Ok(text.as_deref().map(subtitles::cues).unwrap_or_default())
+}
+
 pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out> {
+    let missing = screen::missing_tools();
+    if !missing.is_empty() {
+        bail!(
+            "videos need {} installed (see INSTALL.md)",
+            missing.join(" and ")
+        );
+    }
     let size = std::fs::metadata(path)
         .with_context(|| format!("reading {}", path.display()))?
         .len();
@@ -310,111 +337,45 @@ pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let details = match probe(path) {
-        Probe::Found(p) => from_probe(&p, fallback, size, &ext),
-        Probe::Unreadable => bail!("not a readable video file"),
-        Probe::Missing => native_mp4(path, fallback, size).unwrap_or_else(|| Details {
-            markdown: format!(
-                "{fallback} is a video file ({:.1} megabytes). Install `ffprobe` (part of FFmpeg) to read its duration, tracks and chapters.\n\n",
-                size as f64 / 1_048_576.0
-            ),
-            title: None,
-            description: None,
-            has_text_subtitles: false,
-            tech: format!("{ext} video."),
-        }),
+    let Some(probe) = probe(path) else {
+        bail!("not a readable video file")
     };
+    let details = from_probe(&probe, fallback, size, &ext);
     let title = details
         .title
         .clone()
         .unwrap_or_else(|| fallback.to_string());
     let mut md = format!("# {title}\n\n## Video details\n\n{}", details.markdown);
 
-    let sidecar = ["srt", "vtt", "en.srt", "en.vtt"]
-        .iter()
-        .map(|ext| path.with_extension(ext))
-        .find(|p| p.exists());
-    let transcript = match sidecar {
-        Some(p) => Some(super::text::decode(
-            &std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?,
-        )),
-        None if details.has_text_subtitles => embedded_subtitles(path),
-        None => None,
-    };
-    let cues = transcript
-        .as_deref()
-        .map(subtitles::cues)
-        .unwrap_or_default();
+    // Play every instrument at once, each on its own thread: the screen and the speech.
+    let (spoken, screens) = std::thread::scope(|scope| {
+        let speech = scope.spawn(|| spoken(path, details.has_text_subtitles));
+        let screen = scope.spawn(|| screen::capture(path, &opts.screen_lang, opts.max_frames));
+        (
+            speech
+                .join()
+                .map_err(|_| anyhow!("subtitle reader crashed")),
+            screen
+                .join()
+                .map_err(|_| anyhow!("on-screen text reader crashed")),
+        )
+    });
+    let (spoken, screens) = (spoken??, screens??);
+    let chapters = chapters(&probe);
 
-    let mut omitted: Vec<String> = Vec::new();
-    if cues.is_empty() {
-        omitted.push("speech (no subtitles found, and speech is not transcribed)".into());
-    }
-    let screens = if opts.screen_text {
-        match screen::capture(
-            path,
-            &opts.screen_lang,
-            opts.max_frames,
-            opts.screen_thorough,
-        ) {
-            screen::Capture::Found(s) => s,
-            screen::Capture::Missing(tool) => {
-                omitted.push(format!("on-screen text (install {tool} to capture it)"));
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
+    // Then assemble the score.
+    let mut notes: Vec<(u32, Part)> = Vec::new();
+    notes.extend(chapters.iter().map(|(t, c)| (*t, Part::Chapter(c))));
+    notes.extend(spoken.iter().map(|(t, l)| (*t, Part::Spoken(l))));
+    notes.extend(screens.iter().map(|sc| (sc.at, Part::Shown(sc))));
+    md.push_str(&assemble(&mut notes));
 
-    // One timeline in two-minute sections, in time order: what was said, and what was on screen.
-    const WINDOW: u32 = 120;
-    enum Event<'a> {
-        Said(&'a str),
-        Shown(&'a screen::Screen),
+    let mut out_omitted = Vec::new();
+    if spoken.is_empty() {
+        out_omitted.push("speech (no subtitles found, and speech is not transcribed)".to_string());
     }
-    let mut events: Vec<(u32, u8, Event)> =
-        cues.iter().map(|(t, l)| (*t, 1, Event::Said(l))).collect();
-    // A screen and a line starting at the same second: show the screen first.
-    events.extend(screens.iter().map(|sc| (sc.at, 0, Event::Shown(sc))));
-    events.sort_by_key(|e| (e.0, e.1));
-    if !events.is_empty() {
-        md.push_str("## Timeline\n\n");
-        let mut window = u32::MAX;
-        let mut said: Vec<&str> = Vec::new();
-        let flush = |said: &mut Vec<&str>, md: &mut String| {
-            if !said.is_empty() {
-                md.push_str(&format!("**Spoken**\n\n{}\n\n", said.join(" ")));
-                said.clear();
-            }
-        };
-        for (t, _, ev) in &events {
-            if t / WINDOW != window {
-                flush(&mut said, &mut md);
-                window = t / WINDOW;
-                md.push_str(&format!(
-                    "### {} – {}\n\n",
-                    subtitles::stamp(window * WINDOW),
-                    subtitles::stamp((window + 1) * WINDOW)
-                ));
-            }
-            match ev {
-                Event::Said(l) => said.push(l),
-                Event::Shown(sc) => {
-                    flush(&mut said, &mut md);
-                    md.push_str(&format!(
-                        "**On screen at {}**\n\n{}\n\n",
-                        subtitles::stamp(sc.at),
-                        sc.block
-                    ));
-                }
-            }
-        }
-        flush(&mut said, &mut md);
-    }
-
     // The video's own description, else what is said, else what is shown, else technical facts.
-    let spoken = cues
+    let said = spoken
         .iter()
         .map(|(_, l)| l.as_str())
         .find(|l| l.split_whitespace().count() >= 4)
@@ -425,10 +386,46 @@ pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out
         .find(|l| !l.is_empty());
     let description = details
         .description
-        .or(spoken)
+        .or(said)
         .or(shown)
         .unwrap_or(details.tech);
     let mut out = Out::new(title, md).with_description(Some(description));
-    out.omitted = omitted;
+    out.omitted = out_omitted;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracks_are_assembled_bar_by_bar_in_time_order() {
+        let sc = screen::Screen::for_test(5, "> Saving slide");
+        let late = screen::Screen::for_test(130, "> Second bar slide");
+        let mut notes = vec![
+            (6, Part::Spoken("First line.")),
+            (8, Part::Spoken("Second line.")),
+            (5, Part::Shown(&sc)),
+            (0, Part::Chapter("Intro")),
+            (130, Part::Shown(&late)),
+            (125, Part::Spoken("In the next bar.")),
+        ];
+        let md = assemble(&mut notes);
+        let order = [
+            "### 0:00 – 2:00",
+            "**Chapter at 0:00: Intro**",
+            "**On screen at 0:05**",
+            "**Spoken**\n\nFirst line. Second line.",
+            "### 2:00 – 4:00",
+            "In the next bar.",
+            "> Second bar slide",
+        ];
+        let mut at = 0;
+        for piece in order {
+            let found = md[at..]
+                .find(piece)
+                .unwrap_or_else(|| panic!("{piece:?} out of order in:\n{md}"));
+            at += found + piece.len();
+        }
+    }
 }

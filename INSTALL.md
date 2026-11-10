@@ -1,7 +1,8 @@
 # Installing Doc Monster
 
-Doc Monster is a single program with no runtime dependencies. You build it once with Rust's
-package manager, Cargo, and it lands on your `PATH`.
+Four things, installed once, in this order: Rust (to build Doc Monster), FFmpeg (reads videos),
+Tesseract (reads the text shown on screen in videos), and Doc Monster itself. All are free and run
+on your machine.
 
 ## 1. Install Rust (one time)
 
@@ -27,7 +28,41 @@ Check it worked, in any shell:
 cargo --version
 ```
 
-## 2. Install Doc Monster
+## 2. Install FFmpeg and Tesseract
+
+**macOS (Homebrew, from [brew.sh](https://brew.sh))**
+
+```bash
+brew install ffmpeg tesseract
+```
+
+**Linux (Debian / Ubuntu)**
+
+```bash
+sudo apt install ffmpeg tesseract-ocr
+```
+
+Fedora: `sudo dnf install ffmpeg tesseract`. Arch: `sudo pacman -S ffmpeg tesseract tesseract-data-eng`.
+
+**Windows (PowerShell or Command Prompt)**
+
+```powershell
+winget install --id Gyan.FFmpeg -e
+winget install --id UB-Mannheim.TesseractOCR -e
+```
+
+The Tesseract installer does not add itself to `PATH`. Add it once, then open a new terminal:
+
+| Shell | Command |
+| --- | --- |
+| PowerShell | `[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\Tesseract-OCR", "User")` |
+| Command Prompt | `setx PATH "%PATH%;C:\Program Files\Tesseract-OCR"` |
+
+**Other languages** for text on screen: `sudo apt install tesseract-ocr-spa` (Spanish; use the
+language's three-letter code), `brew install tesseract-lang` (every language on macOS), or tick
+the languages in the Windows installer. Then pass `--screen-lang spa` (or `eng+spa`).
+
+## 3. Install Doc Monster
 
 **Straight from GitHub (any shell)**
 
@@ -54,36 +89,19 @@ If the repository is private, let Cargo use your normal git login:
 | PowerShell | `$env:CARGO_NET_GIT_FETCH_WITH_CLI = "true"` |
 | Command Prompt | `set CARGO_NET_GIT_FETCH_WITH_CLI=true` |
 
-## 3. Check it
+## 4. Check everything
 
 ```
+ffmpeg -version
+tesseract --version
 doc-monster --version
-doc-monster --help
 ```
+
+All three should print a version. If FFmpeg or Tesseract is missing, Doc Monster still converts
+documents but refuses videos with a message naming what to install.
 
 On Windows you can also pin `%USERPROFILE%\.cargo\bin\doc-monster.exe` to the desktop or
 make a shortcut to it: dragging files onto it converts them.
-
-## 4. Optional extras for videos
-
-Doc Monster works without these; they add capabilities.
-
-| Extra | What it adds | macOS | Linux (Debian / Ubuntu) | Windows |
-| --- | --- | --- | --- | --- |
-| FFmpeg (`ffprobe`, `ffmpeg`) | Details, chapters and embedded subtitles for every video format (mp4 works without it); needed for on-screen text | `brew install ffmpeg` | `sudo apt install ffmpeg` | `winget install --id Gyan.FFmpeg -e` |
-| Tesseract | Reads the text shown on screen in videos (slides, code, titles) | `brew install tesseract` | `sudo apt install tesseract-ocr` | `winget install --id UB-Mannheim.TesseractOCR -e` |
-
-On Windows the Tesseract installer does not add itself to `PATH`. Add it once, then open a new
-terminal:
-
-| Shell | Command |
-| --- | --- |
-| PowerShell | `[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\Tesseract-OCR", "User")` |
-| Command Prompt | `setx PATH "%PATH%;C:\Program Files\Tesseract-OCR"` |
-
-Other languages for on-screen text: `sudo apt install tesseract-ocr-spa` (Spanish; use the
-language's three-letter code), `brew install tesseract-lang` (all languages on macOS), or tick
-the languages in the Windows installer. Then pass `--screen-lang spa`.
 
 ## Using it from scripts and agents
 
@@ -120,5 +138,7 @@ cargo uninstall doc-monster                                                     
 - **`linker 'link.exe' not found` on Windows**: install the Visual Studio C++ Build Tools
   (`winget install --id Microsoft.VisualStudio.2022.BuildTools -e`, then pick "Desktop development
   with C++"), then run the install again.
+- **`videos need FFmpeg installed` / `videos need Tesseract installed`**: do step 2, open a new
+  terminal, and check with `ffmpeg -version` and `tesseract --version`.
 - **No monster on Windows**: the animation needs Windows 10 or later; on older consoles Doc Monster
   simply runs without it.

@@ -431,7 +431,7 @@ fn video_on_screen_text_is_read_and_merged_with_what_is_said() {
 }
 
 #[test]
-fn missing_tesseract_is_reported_not_fatal() {
+fn missing_tesseract_is_a_clear_error() {
     if !has("ffmpeg") {
         eprintln!("skipped: needs FFmpeg");
         return;
@@ -461,18 +461,12 @@ fn missing_tesseract_is_reported_not_fatal() {
         .env("PATH", bin.path())
         .output()
         .unwrap();
+    // Tesseract is required: the video fails with a message that says what to install.
+    assert_eq!(result.status.code(), Some(1));
+    let log = String::from_utf8_lossy(&result.stderr);
     assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
+        log.contains("videos need Tesseract installed (see INSTALL.md)"),
+        "{log}"
     );
-    let md = std::fs::read_to_string(out.path().join("slides.md")).unwrap();
-    assert!(
-        md.contains("on-screen text (install Tesseract to capture it)"),
-        "{md}"
-    );
-    assert!(
-        md.contains("Welcome to this week's Aurora update."),
-        "speech still comes through: {md}"
-    );
+    assert!(!out.path().join("slides.md").exists());
 }

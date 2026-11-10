@@ -111,15 +111,20 @@ hidden sheets are labelled, and merged table cells keep columns aligned.
 
 ## Videos: what was said and what was on screen
 
-Each video gets a **timeline** in two-minute sections that interleaves, in time order:
+A video is handled like a piece of music. Each **instrument** is its own track of timed events,
+and all of them play at once on separate threads:
 
+- **On screen**: the text shown on screen (slides, code, title cards, credits, interface labels).
+  FFmpeg takes a frame each time the picture changes, and
+  [Tesseract](https://github.com/tesseract-ocr/tesseract) reads each frame as soon as it is
+  written, while FFmpeg keeps decoding. Misread bullet symbols are repaired, the same screen shown
+  twice is listed once, and code on screen becomes a code block.
 - **Spoken**: the subtitles, from a `.srt` / `.vtt` file beside the video or a subtitle track
   inside it.
-- **On screen**: the text shown on screen (slides, code, title cards, credits, interface labels).
-  A frame is taken each time the picture changes and its text is read with
-  [Tesseract](https://github.com/tesseract-ocr/tesseract), which runs on your machine. Misread
-  bullet symbols are repaired, the same screen shown twice is listed once, and code on screen
-  becomes a code block.
+- **Chapters**: the video's chapter markers.
+
+The **bars** are two-minute sections and the **timestamps** are the beat: the tracks are then
+assembled into one timeline, in time order.
 
 ```markdown
 **On screen at 0:04**
@@ -133,11 +138,10 @@ Each video gets a **timeline** in two-minute sections that interleaves, in time 
 First, how we save player data safely.
 ```
 
-Speed: about 2 seconds of work per minute of 720p video. `--screen-fast` looks at keyframes only
-(about four times faster, but it measurably misses slides that appear between keyframes),
-`--no-screen-text` skips it, `--screen-lang spa` (or `eng+spa`) reads other languages, and
-`--max-frames` caps the number of screens read. Speech itself is not transcribed; without
-subtitles the output says so.
+Speed: about 1.8 seconds of work per minute of 720p video; decoding the video is most of it.
+`--screen-lang spa` (or `eng+spa`) reads other languages and `--max-frames` caps the number of
+screens read. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)).
+Speech itself is not transcribed; without subtitles the output says so.
 
 ## How the summary works
 

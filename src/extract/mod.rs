@@ -71,25 +71,18 @@ impl Format {
 pub struct Options {
     /// Most rows read per spreadsheet sheet or CSV file.
     pub max_rows: usize,
-    /// Read the text shown on screen in videos (needs FFmpeg and Tesseract).
-    pub screen_text: bool,
     /// Tesseract language code(s) for on-screen text, e.g. "eng" or "eng+spa".
     pub screen_lang: String,
     /// Most video frames read for on-screen text.
     pub max_frames: usize,
-    /// Decode every video frame (default). False looks at keyframes only: faster, but misses
-    /// text that appears between keyframes.
-    pub screen_thorough: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
         Options {
             max_rows: 5000,
-            screen_text: true,
             screen_lang: "eng".into(),
             max_frames: 300,
-            screen_thorough: true,
         }
     }
 }

@@ -1,20 +1,18 @@
-//! On-screen text in videos: slides, code, captions, interface labels.
+//! The on-screen text track of a video: slides, code, title cards, credits, interface labels.
 //!
-//! FFmpeg samples one frame per second and keeps only frames that differ from the previous one
-//! (plus one at least every 30 seconds). Every frame is decoded by default: encoders do not
-//! reliably put keyframes where slides change, so a keyframes-only pass (not `thorough`) is faster
-//! but misses text; Tesseract reads the text in each kept frame, in
-//! parallel. Bullet symbols misread as letters are repaired, noise is dropped, consecutive frames
-//! showing the same screen are merged, and code-looking text becomes a code block.
-//! Both programs run locally; when either is missing the caller reports it instead of failing.
+//! FFmpeg decodes every frame, samples one per second and keeps only frames that differ from the
+//! previous one (plus one at least every 30 seconds). Tesseract reads each kept frame as soon as
+//! FFmpeg has written it, in parallel, so reading overlaps decoding instead of waiting for it.
+//! Bullet symbols misread as letters are repaired, noise is dropped, consecutive frames showing
+//! the same screen are merged, and code-looking text becomes a code block.
 
-use rayon::prelude::*;
+use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 pub struct Screen {
     /// Seconds from the start when this screen first appears.
@@ -27,10 +25,17 @@ pub struct Screen {
     word_count: usize,
 }
 
-pub enum Capture {
-    Found(Vec<Screen>),
-    /// A required program is not installed.
-    Missing(&'static str),
+#[cfg(test)]
+impl Screen {
+    pub fn for_test(at: u32, block: &str) -> Screen {
+        Screen {
+            at,
+            block: block.to_string(),
+            first_line: String::new(),
+            words: HashSet::new(),
+            word_count: 0,
+        }
+    }
 }
 
 /// Two kept frames whose words overlap this much show the same screen.
@@ -53,6 +58,31 @@ fn installed(program: &str) -> bool {
             .is_ok()
 }
 
+/// Required programs that are not installed (checked once per run).
+pub fn missing_tools() -> Vec<&'static str> {
+    static MISSING: OnceLock<Vec<&'static str>> = OnceLock::new();
+    MISSING
+        .get_or_init(|| {
+            ["ffmpeg", "ffprobe", "tesseract"]
+                .into_iter()
+                .filter(|p| !installed(p))
+                .map(|p| {
+                    if p == "tesseract" {
+                        "Tesseract"
+                    } else {
+                        "FFmpeg"
+                    }
+                })
+                .fold(Vec::new(), |mut v, p| {
+                    if !v.contains(&p) {
+                        v.push(p);
+                    }
+                    v
+                })
+        })
+        .clone()
+}
+
 fn scratch_dir() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     std::env::temp_dir().join(format!(
@@ -60,65 +90,6 @@ fn scratch_dir() -> PathBuf {
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ))
-}
-
-/// One slice of the video, decoded by its own FFmpeg process.
-struct Slice {
-    start: f64,
-    len: Option<f64>,
-    max_frames: usize,
-    tag: usize,
-}
-
-/// Grab changed frames of one slice as grayscale PNGs; returns (frame file, seconds) in order.
-fn grab_frames(
-    video: &Path,
-    dir: &Path,
-    slice: &Slice,
-    thorough: bool,
-) -> Option<Vec<(PathBuf, u32)>> {
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-v", "info", "-nostdin"]);
-    if !thorough {
-        cmd.args(["-skip_frame", "nokey"]);
-    }
-    if slice.start > 0.0 {
-        cmd.args(["-ss", &format!("{:.3}", slice.start)]);
-    }
-    cmd.arg("-i").arg(video);
-    if let Some(len) = slice.len {
-        cmd.args(["-t", &format!("{len:.3}")]);
-    }
-    let pattern = format!("s{:03}-%06d.png", slice.tag);
-    let out = cmd
-        .args(["-an", "-sn", "-vf", "fps=1,mpdecimate=hi=768:lo=320:frac=0.33:max=30,showinfo,scale='min(1920,iw)':-2,format=gray"])
-        .args(["-fps_mode", "vfr", "-frames:v", &slice.max_frames.to_string()])
-        .arg(dir.join(pattern))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .output()
-        .ok()?;
-    let log = String::from_utf8_lossy(&out.stderr);
-    let times: Vec<u32> = log
-        .lines()
-        .filter(|l| l.contains("showinfo") || l.contains("Parsed_showinfo"))
-        .filter_map(|l| l.split("pts_time:").nth(1))
-        .filter_map(|t| t.split_whitespace().next()?.parse::<f64>().ok())
-        .map(|t| (t.max(0.0) + slice.start) as u32)
-        .collect();
-    let prefix = format!("s{:03}-", slice.tag);
-    let mut frames: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension().is_some_and(|e| e == "png")
-                && p.file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with(&prefix))
-        })
-        .collect();
-    frames.sort();
-    Some(frames.into_iter().zip(times).collect())
 }
 
 fn ocr(frame: &Path, lang: &str) -> String {
@@ -208,34 +179,90 @@ fn overlap(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
     a.intersection(b).count() as f32 / a.union(b).count() as f32
 }
 
-pub fn capture(video: &Path, lang: &str, max_frames: usize, thorough: bool) -> Capture {
-    if !installed("ffmpeg") {
-        return Capture::Missing("FFmpeg");
-    }
-    if !installed("tesseract") {
-        return Capture::Missing("Tesseract");
-    }
+pub fn capture(video: &Path, lang: &str, max_frames: usize) -> Result<Vec<Screen>> {
     let dir = scratch_dir();
-    if std::fs::create_dir_all(&dir).is_err() {
-        return Capture::Found(Vec::new());
-    }
-    // One pass over the whole video. (Cutting it into slices decoded in parallel was measured:
-    // about 10% faster, because FFmpeg's decoder already uses several cores, and text at slice
-    // boundaries was lost. Not worth it.)
-    let whole = Slice {
-        start: 0.0,
-        len: None,
-        max_frames,
-        tag: 0,
-    };
-    let frames: Vec<(PathBuf, u32)> =
-        grab_frames(video, &dir, &whole, thorough).unwrap_or_default();
-    let read: Vec<(u32, Vec<String>)> = frames
-        .par_iter()
-        .map(|(f, t)| (*t, clean(&ocr(f, lang))))
-        .collect();
+    std::fs::create_dir_all(&dir).context("creating a folder for video frames")?;
+    let result = read_while_decoding(video, &dir, lang, max_frames);
     let _ = std::fs::remove_dir_all(&dir);
+    Ok(merge(result?))
+}
 
+fn frame_path(dir: &Path, n: usize) -> PathBuf {
+    dir.join(format!("f{n:06}.png"))
+}
+
+/// Run FFmpeg, and read each frame with Tesseract as soon as FFmpeg has finished writing it.
+/// Returns (seconds, cleaned lines) in frame order.
+fn read_while_decoding(
+    video: &Path,
+    dir: &Path,
+    lang: &str,
+    max_frames: usize,
+) -> Result<Vec<(u32, Vec<String>)>> {
+    let mut child = Command::new("ffmpeg")
+        .args(["-v", "info", "-nostdin", "-i"])
+        .arg(video)
+        .args(["-an", "-sn", "-vf", "fps=1,mpdecimate=hi=768:lo=320:frac=0.33:max=30,showinfo,scale='min(1920,iw)':-2,format=gray"])
+        .args(["-fps_mode", "vfr", "-frames:v", &max_frames.to_string()])
+        .arg(dir.join("f%06d.png"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting ffmpeg")?;
+    // FFmpeg reports each kept frame's time on its error stream; drain it as it comes.
+    let stderr = child.stderr.take().expect("piped");
+    let times = std::thread::spawn(move || {
+        use std::io::BufRead;
+        std::io::BufReader::new(stderr)
+            .lines()
+            .map_while(|l| l.ok())
+            .filter(|l| l.contains("showinfo"))
+            .filter_map(|l| {
+                l.split("pts_time:")
+                    .nth(1)?
+                    .split_whitespace()
+                    .next()?
+                    .parse::<f64>()
+                    .ok()
+            })
+            .map(|t| t.max(0.0) as u32)
+            .collect::<Vec<u32>>()
+    });
+
+    let read: Mutex<Vec<(usize, Vec<String>)>> = Mutex::new(Vec::new());
+    rayon::scope(|workers| -> Result<()> {
+        let mut sent = 0usize;
+        loop {
+            let finished = child.try_wait()?.is_some();
+            // Frame n is complete once frame n+1 exists, or once FFmpeg has exited.
+            while frame_path(dir, sent + 1).exists()
+                && (finished || frame_path(dir, sent + 2).exists())
+            {
+                sent += 1;
+                let (frame, read) = (frame_path(dir, sent), &read);
+                workers.spawn(move |_| {
+                    let lines = clean(&ocr(&frame, lang));
+                    read.lock().unwrap().push((sent, lines));
+                });
+            }
+            if finished {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    })?;
+    let times = times.join().unwrap_or_default();
+    let mut read = read.into_inner().unwrap();
+    read.sort_by_key(|r| r.0);
+    Ok(read
+        .into_iter()
+        .filter_map(|(n, lines)| Some((*times.get(n - 1)?, lines)))
+        .collect())
+}
+
+/// Drop frames without real text and merge consecutive frames of the same screen.
+fn merge(read: Vec<(u32, Vec<String>)>) -> Vec<Screen> {
     let mut screens: Vec<Screen> = Vec::new();
     for (at, lines) in read {
         let word_count: usize = lines.iter().map(|l| real_words(l)).sum();
@@ -268,7 +295,7 @@ pub fn capture(video: &Path, lang: &str, max_frames: usize, thorough: bool) -> C
             _ => screens.push(screen),
         }
     }
-    Capture::Found(screens)
+    screens
 }
 
 #[cfg(test)]
