@@ -64,13 +64,26 @@ doc-monster --help
 On Windows you can also pin `%USERPROFILE%\.cargo\bin\doc-monster.exe` to the desktop or
 make a shortcut to it: dragging files onto it converts them.
 
-## 4. Optional extra
+## 4. Optional extras for videos
 
-Doc Monster works without this; it adds capabilities.
+Doc Monster works without these; they add capabilities.
 
 | Extra | What it adds | macOS | Linux (Debian / Ubuntu) | Windows |
 | --- | --- | --- | --- | --- |
-| FFmpeg (`ffprobe`, `ffmpeg`) | Details, chapters and embedded subtitles for every video format (mp4 works without it) | `brew install ffmpeg` | `sudo apt install ffmpeg` | `winget install --id Gyan.FFmpeg -e` |
+| FFmpeg (`ffprobe`, `ffmpeg`) | Details, chapters and embedded subtitles for every video format (mp4 works without it); needed for on-screen text | `brew install ffmpeg` | `sudo apt install ffmpeg` | `winget install --id Gyan.FFmpeg -e` |
+| Tesseract | Reads the text shown on screen in videos (slides, code, titles) | `brew install tesseract` | `sudo apt install tesseract-ocr` | `winget install --id UB-Mannheim.TesseractOCR -e` |
+
+On Windows the Tesseract installer does not add itself to `PATH`. Add it once, then open a new
+terminal:
+
+| Shell | Command |
+| --- | --- |
+| PowerShell | `[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\Tesseract-OCR", "User")` |
+| Command Prompt | `setx PATH "%PATH%;C:\Program Files\Tesseract-OCR"` |
+
+Other languages for on-screen text: `sudo apt install tesseract-ocr-spa` (Spanish; use the
+language's three-letter code), `brew install tesseract-lang` (all languages on macOS), or tick
+the languages in the Windows installer. Then pass `--screen-lang spa`.
 
 ## Using it from scripts and agents
 

@@ -7,6 +7,7 @@ mod markup;
 mod odf;
 mod pdf;
 mod rtf;
+mod screen;
 mod subtitles;
 mod text;
 mod video;
@@ -70,11 +71,26 @@ impl Format {
 pub struct Options {
     /// Most rows read per spreadsheet sheet or CSV file.
     pub max_rows: usize,
+    /// Read the text shown on screen in videos (needs FFmpeg and Tesseract).
+    pub screen_text: bool,
+    /// Tesseract language code(s) for on-screen text, e.g. "eng" or "eng+spa".
+    pub screen_lang: String,
+    /// Most video frames read for on-screen text.
+    pub max_frames: usize,
+    /// Decode every video frame (default). False looks at keyframes only: faster, but misses
+    /// text that appears between keyframes.
+    pub screen_thorough: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { max_rows: 5000 }
+        Options {
+            max_rows: 5000,
+            screen_text: true,
+            screen_lang: "eng".into(),
+            max_frames: 300,
+            screen_thorough: true,
+        }
     }
 }
 
@@ -341,7 +357,7 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
 
     // Videos can be gigabytes: never read them whole.
     let out: Out = if format == Format::Video {
-        video::convert(path, &fallback)?
+        video::convert(path, &fallback, opts)?
     } else if format == Format::Csv {
         // Streamed, so only the rows that are kept are ever read.
         csv_table::convert(path, &fallback, opts.max_rows)?

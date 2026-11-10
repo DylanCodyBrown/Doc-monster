@@ -389,3 +389,90 @@ fn nothing_to_eat_is_an_error_not_a_hang() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+fn has(program: &str) -> bool {
+    Command::new(program).arg("-version").output().is_ok()
+        || Command::new(program).arg("--version").output().is_ok()
+}
+
+#[test]
+fn video_on_screen_text_is_read_and_merged_with_what_is_said() {
+    if !has("ffmpeg") || !has("tesseract") {
+        eprintln!("skipped: needs FFmpeg and Tesseract");
+        return;
+    }
+    let out = tempfile::tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slides.mkv");
+    let (ok, log) = run(&[
+        fixture.to_str().unwrap(),
+        "-o",
+        out.path().to_str().unwrap(),
+    ]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(out.path().join("slides.md")).unwrap();
+    // Every slide, once (the slide shown twice is merged), with misread bullets repaired.
+    for needle in [
+        "> Aurora Dev Update",
+        "> DataStore saving",
+        "> - Wrap every call in pcall",
+        "> Pet trading",
+        "> - Two step confirmation",
+    ] {
+        assert!(md.contains(needle), "missing {needle:?}:\n{md}");
+    }
+    assert_eq!(md.matches("> DataStore saving").count(), 1, "{md}");
+    // Code on screen becomes a code block.
+    assert!(md.contains("```\nlocal ok, err = pcall(function()"), "{md}");
+    // Speech and screens interleaved in time order.
+    let said = md.find("First, how we save player data safely.").unwrap();
+    let saving = md.find("> DataStore saving").unwrap();
+    let trading = md.find("> Pet trading").unwrap();
+    assert!(saving < said && said < trading, "{md}");
+}
+
+#[test]
+fn missing_tesseract_is_reported_not_fatal() {
+    if !has("ffmpeg") {
+        eprintln!("skipped: needs FFmpeg");
+        return;
+    }
+    // A PATH holding FFmpeg but not Tesseract.
+    let bin = tempfile::tempdir().unwrap();
+    for tool in ["ffmpeg", "ffprobe"] {
+        let real = String::from_utf8(
+            Command::new("sh")
+                .args(["-c", &format!("command -v {tool}")])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(real.trim(), bin.path().join(tool)).unwrap();
+    }
+    let out = tempfile::tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slides.mkv");
+    let result = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+        .args([
+            fixture.to_str().unwrap(),
+            "-o",
+            out.path().to_str().unwrap(),
+        ])
+        .env("PATH", bin.path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let md = std::fs::read_to_string(out.path().join("slides.md")).unwrap();
+    assert!(
+        md.contains("on-screen text (install Tesseract to capture it)"),
+        "{md}"
+    );
+    assert!(
+        md.contains("Welcome to this week's Aurora update."),
+        "speech still comes through: {md}"
+    );
+}

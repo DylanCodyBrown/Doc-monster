@@ -20,7 +20,7 @@ fn parse_time(s: &str) -> Option<u32> {
     }
 }
 
-fn stamp(secs: u32) -> String {
+pub fn stamp(secs: u32) -> String {
     if secs >= 3600 {
         format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
     } else {
@@ -42,9 +42,8 @@ fn strip_tags(s: &str) -> String {
     out
 }
 
-/// Group cues into windows of two minutes, one section each.
-pub fn transcript(text: &str, title: &str) -> String {
-    const WINDOW: u32 = 120;
+/// Subtitle cues as (start in seconds, text).
+pub fn cues(text: &str) -> Vec<(u32, String)> {
     let lines: Vec<&str> = text.lines().collect();
     let mut cues: Vec<(u32, String)> = Vec::new();
     let mut i = 0;
@@ -66,6 +65,13 @@ pub fn transcript(text: &str, title: &str) -> String {
         }
         i += 1;
     }
+    cues
+}
+
+/// Group cues into windows of two minutes, one section each.
+pub fn transcript(text: &str, title: &str) -> String {
+    const WINDOW: u32 = 120;
+    let cues = cues(text);
     let mut out = format!("# {title} (transcript)\n\n");
     let mut window = u32::MAX;
     let mut para = String::new();

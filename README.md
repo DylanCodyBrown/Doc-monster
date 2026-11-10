@@ -103,11 +103,41 @@ description: "Player data is saved to a DataStore every minute and again when th
 | Spreadsheets | `.xlsx` `.xlsm` `.xls` `.xlsb` `.ods` `.csv` `.tsv` (first 5,000 rows per sheet; `--max-rows` to change) |
 | Data | JSON (comments allowed), JSON Lines, YAML, TOML, XML, INI and `.env` |
 | Text | Markdown, plain text in any encoding, HTML, reStructuredText, AsciiDoc, Org, LaTeX, logs and code |
-| Video | `.mp4` `.mov` `.mkv` `.webm` `.avi` and more: tracks, chapters, tags and subtitles |
+| Video | `.mp4` `.mov` `.mkv` `.webm` `.avi` and more: on-screen text, subtitles, chapters, tags and tracks |
 | Other | PDF, `.srt` and `.vtt` subtitles |
 
 Footnotes, endnotes, comments, and page headers and footers are kept. Spreadsheet dates stay dates,
 hidden sheets are labelled, and merged table cells keep columns aligned.
+
+## Videos: what was said and what was on screen
+
+Each video gets a **timeline** in two-minute sections that interleaves, in time order:
+
+- **Spoken**: the subtitles, from a `.srt` / `.vtt` file beside the video or a subtitle track
+  inside it.
+- **On screen**: the text shown on screen (slides, code, title cards, credits, interface labels).
+  A frame is taken each time the picture changes and its text is read with
+  [Tesseract](https://github.com/tesseract-ocr/tesseract), which runs on your machine. Misread
+  bullet symbols are repaired, the same screen shown twice is listed once, and code on screen
+  becomes a code block.
+
+```markdown
+**On screen at 0:04**
+
+> DataStore saving
+> - Autosave every 60 seconds
+> - Wrap every call in pcall
+
+**Spoken**
+
+First, how we save player data safely.
+```
+
+Speed: about 2 seconds of work per minute of 720p video. `--screen-fast` looks at keyframes only
+(about four times faster, but it measurably misses slides that appear between keyframes),
+`--no-screen-text` skips it, `--screen-lang spa` (or `eng+spa`) reads other languages, and
+`--max-frames` caps the number of screens read. Speech itself is not transcribed; without
+subtitles the output says so.
 
 ## How the summary works
 
@@ -175,7 +205,8 @@ writes `INDEX.v2.md` instead and leaves yours alone.
 - **Scripts and agents:** `--json` prints a machine-readable report, exit codes are `0` / `1` / `2`,
   and the monster only appears in an interactive terminal.
 - **Not yet:** scanned pages and images (needs text recognition), PDF headings and tables, slide
-  decks (`.pptx`), e-books, speech in videos, merged cells in legacy `.doc` tables.
+  decks (`.pptx`), e-books, speech in videos without subtitles, merged cells in legacy `.doc`
+  tables.
 
 ## Development
 

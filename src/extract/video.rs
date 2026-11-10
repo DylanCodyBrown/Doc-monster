@@ -5,7 +5,7 @@
 //! or from a subtitle track inside it (via `ffmpeg`). Speech is NOT transcribed: that needs a
 //! speech model, which this tool avoids by default.
 
-use super::{Out, subtitles};
+use super::{Out, screen, subtitles};
 use anyhow::{Context, Result, bail};
 use mp4::{MediaType, Mp4Reader, TrackType};
 use serde_json::Value;
@@ -301,7 +301,7 @@ fn embedded_subtitles(path: &Path) -> Option<String> {
     (out.status.success() && text.contains("-->")).then_some(text)
 }
 
-pub fn convert(path: &Path, fallback: &str) -> Result<Out> {
+pub fn convert(path: &Path, fallback: &str, opts: &super::Options) -> Result<Out> {
     let size = std::fs::metadata(path)
         .with_context(|| format!("reading {}", path.display()))?
         .len();
@@ -341,16 +341,94 @@ pub fn convert(path: &Path, fallback: &str) -> Result<Out> {
         None if details.has_text_subtitles => embedded_subtitles(path),
         None => None,
     };
-    let mut spoken = None;
-    match transcript {
-        Some(t) => {
-            let body = subtitles::transcript(&t, "Transcript");
-            spoken = crate::digest::first_sentence(&body);
-            md.push_str(&body.replacen("# Transcript (transcript)", "## Transcript", 1).replace("\n## ", "\n### "));
-        }
-        None => md.push_str("_No transcript: place a `.srt` or `.vtt` file with the same name next to the video to include one._\n"),
+    let cues = transcript
+        .as_deref()
+        .map(subtitles::cues)
+        .unwrap_or_default();
+
+    let mut omitted: Vec<String> = Vec::new();
+    if cues.is_empty() {
+        omitted.push("speech (no subtitles found, and speech is not transcribed)".into());
     }
-    // The video's own description, else what is said in it, else its technical facts.
-    let description = details.description.or(spoken).unwrap_or(details.tech);
-    Ok(Out::new(title, md).with_description(Some(description)))
+    let screens = if opts.screen_text {
+        match screen::capture(
+            path,
+            &opts.screen_lang,
+            opts.max_frames,
+            opts.screen_thorough,
+        ) {
+            screen::Capture::Found(s) => s,
+            screen::Capture::Missing(tool) => {
+                omitted.push(format!("on-screen text (install {tool} to capture it)"));
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    // One timeline in two-minute sections, in time order: what was said, and what was on screen.
+    const WINDOW: u32 = 120;
+    enum Event<'a> {
+        Said(&'a str),
+        Shown(&'a screen::Screen),
+    }
+    let mut events: Vec<(u32, u8, Event)> =
+        cues.iter().map(|(t, l)| (*t, 1, Event::Said(l))).collect();
+    // A screen and a line starting at the same second: show the screen first.
+    events.extend(screens.iter().map(|sc| (sc.at, 0, Event::Shown(sc))));
+    events.sort_by_key(|e| (e.0, e.1));
+    if !events.is_empty() {
+        md.push_str("## Timeline\n\n");
+        let mut window = u32::MAX;
+        let mut said: Vec<&str> = Vec::new();
+        let flush = |said: &mut Vec<&str>, md: &mut String| {
+            if !said.is_empty() {
+                md.push_str(&format!("**Spoken**\n\n{}\n\n", said.join(" ")));
+                said.clear();
+            }
+        };
+        for (t, _, ev) in &events {
+            if t / WINDOW != window {
+                flush(&mut said, &mut md);
+                window = t / WINDOW;
+                md.push_str(&format!(
+                    "### {} – {}\n\n",
+                    subtitles::stamp(window * WINDOW),
+                    subtitles::stamp((window + 1) * WINDOW)
+                ));
+            }
+            match ev {
+                Event::Said(l) => said.push(l),
+                Event::Shown(sc) => {
+                    flush(&mut said, &mut md);
+                    md.push_str(&format!(
+                        "**On screen at {}**\n\n{}\n\n",
+                        subtitles::stamp(sc.at),
+                        sc.block
+                    ));
+                }
+            }
+        }
+        flush(&mut said, &mut md);
+    }
+
+    // The video's own description, else what is said, else what is shown, else technical facts.
+    let spoken = cues
+        .iter()
+        .map(|(_, l)| l.as_str())
+        .find(|l| l.split_whitespace().count() >= 4)
+        .map(str::to_string);
+    let shown = screens
+        .iter()
+        .map(|s| s.first_line.clone())
+        .find(|l| !l.is_empty());
+    let description = details
+        .description
+        .or(spoken)
+        .or(shown)
+        .unwrap_or(details.tech);
+    let mut out = Out::new(title, md).with_description(Some(description));
+    out.omitted = omitted;
+    Ok(out)
 }
