@@ -80,8 +80,8 @@ struct Args {
     #[arg(long)]
     no_summary: bool,
     /// How compressed the output is, 1 to 10. 1: summary and the full document (default).
-    /// 2-9: summary and the document shortened (2 keeps about 80% of the words, 5 about 40%,
-    /// 9 about 7%). 10: summary only.
+    /// 2-9: summary and the document shortened (roughly 85% of the words at 2, 45% at 5,
+    /// 20% at 9; repeats removed first). 10: summary only.
     #[arg(short, long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=10))]
     compress: u8,
     /// Skip the Markdown cleanup pass (keep the converted text exactly as extracted).

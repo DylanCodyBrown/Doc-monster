@@ -31,7 +31,7 @@ Markdown: point it at a file or a folder and it gobbles everything.
 cargo install --git https://github.com/DylanCodyBrown/Doc-monster --locked
 doc-monster report.docx          # writes report.md beside it
 doc-monster ./inbox              # every document in the folder, recursively
-doc-monster notes.md -c 5        # compression 5 of 10: about 40% of the words
+doc-monster notes.md -c 5        # compression 5 of 10: about 45% of the words
 doc-monster notes.md -c 10       # summary only
 doc-monster index ./notes        # one INDEX.md for every Markdown file in the folder
 ```
