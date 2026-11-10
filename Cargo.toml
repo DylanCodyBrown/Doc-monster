@@ -30,6 +30,7 @@ thiserror = "2.0.21"
 toml = "1.2.1"
 walkdir = "2.5.0"
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
+terminal_size = "0.4.4"
 
 [features]
 # Build FFmpeg, ffprobe and Tesseract into the program (see Linux Binary/README.md).

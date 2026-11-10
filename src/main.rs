@@ -205,20 +205,23 @@ fn drop_mode(args: Args) -> Result<i32> {
     let mut worst = 0;
     let (mut mood, mut status) = (ui::Mood::Hungry, ui.hungry());
     let stdin = std::io::stdin();
-    let mut first = true;
     loop {
-        ui.pet_prompt(mood, &status, first);
-        first = false;
+        ui.pet_prompt(mood, &status);
         let mut line = String::new();
         if stdin.lock().read_line(&mut line)? == 0 {
+            // End of input (Ctrl+D): the cursor is still on the prompt row.
             println!();
+            ui.clear_pet("");
             break;
         }
+        // One pet only: erase it here; it is drawn again below what this batch prints.
+        ui.clear_pet(&line);
         if matches!(line.trim(), "" | "q" | "quit" | "exit") {
             break;
         }
         let mut batch = args.clone();
         batch.inputs = dropped::parse(&line);
+        ui.fed(&batch.inputs);
         match eat(&batch, &ui) {
             Ok(b) => {
                 worst = worst.max(b.code);

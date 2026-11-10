@@ -260,7 +260,7 @@ impl Ui {
 
     /// Drop mode: the pet, a few words beside it, and the prompt on its last row. Returns
     /// without a newline so the input is typed right next to the pet.
-    pub fn pet_prompt(&self, mood: Mood, status: &str, first: bool) {
+    pub fn pet_prompt(&self, mood: Mood, status: &str) {
         let mut out = std::io::stdout();
         if !self.shows_pet() {
             let _ = write!(out, "feed me > ");
@@ -268,25 +268,19 @@ impl Ui {
             return;
         }
         let rows = pet(mood);
-        // The title and instructions the first time; after that the pet just comes along.
-        let (title, help) = if first {
-            (
-                format!(
-                    "{} {}",
-                    self.bold_neon("Doc Monster"),
-                    self.dim(env!("CARGO_PKG_VERSION"))
-                ),
-                self.dim("drop files or folders here, then press Enter"),
-            )
-        } else {
-            (String::new(), String::new())
-        };
+        let title = format!(
+            "{} {}",
+            self.bold_neon("Doc Monster"),
+            self.dim(env!("CARGO_PKG_VERSION"))
+        );
+        let help = self.dim("drop files or folders here, then press Enter");
         let words = [
             title,
             help,
             status.to_string(),
             self.neon(self.glyphs.prompt),
         ];
+        // A blank row above the pet keeps it apart from the results printed before it.
         let mut text = String::from("\n");
         for (i, (row, word)) in rows.iter().zip(words).enumerate() {
             text.push_str(&format!("  {}  {word}", self.neon(row)));
@@ -298,6 +292,41 @@ impl Ui {
         }
         let _ = write!(out, "{text}");
         let _ = out.flush();
+    }
+
+    /// Erase the pet and the line typed beside it, once Enter is pressed, so there is only
+    /// ever one pet on screen: it is drawn again below whatever the batch prints.
+    pub fn clear_pet(&self, typed: &str) {
+        if !self.shows_pet() {
+            return;
+        }
+        let width = terminal_size::terminal_size_of(std::io::stdout())
+            .map_or(80, |(w, _)| usize::from(w.0).max(20));
+        // The blank row and three pet rows above the prompt, then the prompt and what was typed.
+        let up = 4 + rows_taken(PROMPT_COLUMN + typed.trim_end().chars().count(), width);
+        let mut out = std::io::stdout();
+        let _ = write!(out, "\x1b[{up}A\r\x1b[J");
+        let _ = out.flush();
+    }
+
+    /// One dim line recording what was dropped, in place of the erased input.
+    pub fn fed(&self, inputs: &[std::path::PathBuf]) {
+        if !self.shows_pet() || inputs.is_empty() {
+            return;
+        }
+        let names: Vec<String> = inputs
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into())
+            })
+            .collect();
+        // Where the pet sat: a blank row, then what was dropped.
+        println!(
+            "\n  {} {}",
+            self.neon(self.glyphs.prompt),
+            self.dim(&names.join("  "))
+        );
     }
 
     /// What the pet says after a batch.
@@ -355,6 +384,14 @@ impl Tracker {
     }
 }
 
+/// Where typing starts on the prompt row: indent, pet, gap, prompt sign and a space.
+const PROMPT_COLUMN: usize = 2 + 9 + 2 + 2;
+
+/// Screen rows a line of `columns` characters takes, wrapping at `width`.
+fn rows_taken(columns: usize, width: usize) -> usize {
+    columns.max(1).div_ceil(width)
+}
+
 /// The pet: a little slime ghost, four rows of eleven columns.
 fn pet(mood: Mood) -> [&'static str; 4] {
     let (eyes, mouth) = match mood {
@@ -397,6 +434,14 @@ mod tests {
             line.contains("\x1b[38;2;57;255;20m"),
             "neon green: {line:?}"
         );
+    }
+
+    #[test]
+    fn erasing_the_pet_counts_wrapped_input_lines() {
+        assert_eq!(rows_taken(PROMPT_COLUMN, 80), 1);
+        assert_eq!(rows_taken(PROMPT_COLUMN + 65, 80), 1);
+        assert_eq!(rows_taken(PROMPT_COLUMN + 66, 80), 2);
+        assert_eq!(rows_taken(PROMPT_COLUMN + 300, 80), 4);
     }
 
     #[test]
