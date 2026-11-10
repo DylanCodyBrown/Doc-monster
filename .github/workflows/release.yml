@@ -1,11 +1,15 @@
 # Builds Doc Monster on Windows, macOS and Linux, runs the tests there, and attaches the
-# programs to a GitHub release. Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed,
-# or by hand from the Actions tab.
+# programs to a GitHub release. Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed, when a
+# release is published on GitHub, or by hand from the Actions tab (programs are then kept as
+# downloads on that run).
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  # Publishing a release on GitHub's website (which creates its tag) also builds it.
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -73,7 +77,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
