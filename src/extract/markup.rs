@@ -65,14 +65,18 @@ fn rst_inline(s: &str) -> String {
     let s = link.replace_all(&s, "[$1]($2)");
     let s = role.replace_all(&s, "\u{1}$1\u{2}");
     let s = plain_ref.replace_all(&s, "$1");
-    s.replace('\u{1}', "`").replace('\u{2}', "`")
+    s.replace(['\u{1}', '\u{2}'], "`")
 }
 
 fn rst(src: &str) -> String {
     // Link text may wrap across lines, so links are converted on the whole text first.
     let wrapped_link = Regex::new(r"`([^`<]+?)\s*<([^>]+)>`_{1,2}").unwrap();
     let src = wrapped_link.replace_all(src, |c: &regex::Captures| {
-        format!("[{}]({})", c[1].split_whitespace().collect::<Vec<_>>().join(" "), c[2].split_whitespace().collect::<String>())
+        format!(
+            "[{}]({})",
+            c[1].split_whitespace().collect::<Vec<_>>().join(" "),
+            c[2].split_whitespace().collect::<String>()
+        )
     });
     let lines: Vec<&str> = src.lines().collect();
     let mut out: Vec<String> = Vec::new();
@@ -86,34 +90,51 @@ fn rst(src: &str) -> String {
             }
         }
     };
-    let admonitions = ["note", "warning", "tip", "important", "caution", "danger", "attention", "hint", "error", "seealso"];
+    let admonitions = [
+        "note",
+        "warning",
+        "tip",
+        "important",
+        "caution",
+        "danger",
+        "attention",
+        "hint",
+        "error",
+        "seealso",
+    ];
     let mut i = 0;
     while i < lines.len() {
         let l = lines[i];
         // Overlined then underlined title.
-        if let (Some(c), Some(t), Some(u)) = (is_adornment(l), lines.get(i + 1), lines.get(i + 2)) {
-            if !t.trim().is_empty() && is_adornment(u) == Some(c) && is_adornment(t).is_none() {
-                let lvl = level_of(&mut levels, (c, true)).min(6);
-                out.push(format!("{} {}", "#".repeat(lvl), t.trim()));
-                i += 3;
-                continue;
-            }
+        if let (Some(c), Some(t), Some(u)) = (is_adornment(l), lines.get(i + 1), lines.get(i + 2))
+            && !t.trim().is_empty()
+            && is_adornment(u) == Some(c)
+            && is_adornment(t).is_none()
+        {
+            let lvl = level_of(&mut levels, (c, true)).min(6);
+            out.push(format!("{} {}", "#".repeat(lvl), t.trim()));
+            i += 3;
+            continue;
         }
         // Underlined title.
-        if !l.trim().is_empty() && is_adornment(l).is_none() && indent_of(l) == 0 {
-            if let Some(c) = lines.get(i + 1).and_then(|u| is_adornment(u)) {
-                if lines[i + 1].trim_end().len() >= l.trim_end().chars().count().min(3) {
-                    let lvl = level_of(&mut levels, (c, false)).min(6);
-                    out.push(format!("{} {}", "#".repeat(lvl), rst_inline(l.trim())));
-                    i += 2;
-                    continue;
-                }
-            }
+        if !l.trim().is_empty()
+            && is_adornment(l).is_none()
+            && indent_of(l) == 0
+            && let Some(c) = lines.get(i + 1).and_then(|u| is_adornment(u))
+            && lines[i + 1].trim_end().len() >= l.trim_end().chars().count().min(3)
+        {
+            let lvl = level_of(&mut levels, (c, false)).min(6);
+            out.push(format!("{} {}", "#".repeat(lvl), rst_inline(l.trim())));
+            i += 2;
+            continue;
         }
         let trimmed = l.trim_start();
         if indent_of(l) == 0 && trimmed.starts_with(".. ") {
             let directive = trimmed[3..].trim();
-            let (name, arg) = directive.split_once("::").map(|(n, a)| (n.trim(), a.trim())).unwrap_or(("", ""));
+            let (name, arg) = directive
+                .split_once("::")
+                .map(|(n, a)| (n.trim(), a.trim()))
+                .unwrap_or(("", ""));
             // Collect the indented body.
             let mut j = i + 1;
             let mut body: Vec<String> = Vec::new();
@@ -126,13 +147,21 @@ fn rst(src: &str) -> String {
             }
             match name {
                 "code-block" | "code" | "sourcecode" | "highlight" if name != "highlight" => {
-                    let content: Vec<String> = body.iter().skip_while(|b| b.starts_with(':') || b.is_empty()).cloned().collect();
+                    let content: Vec<String> = body
+                        .iter()
+                        .skip_while(|b| b.starts_with(':') || b.is_empty())
+                        .cloned()
+                        .collect();
                     fence(&mut out, arg, &content);
                 }
                 n if admonitions.contains(&n) => {
                     out.push(String::new());
                     let text = format!("{} {}", arg, body.join(" ")).trim().to_string();
-                    out.push(format!("> **{}:** {}", n[..1].to_uppercase() + &n[1..], rst_inline(&text)));
+                    out.push(format!(
+                        "> **{}:** {}",
+                        n[..1].to_uppercase() + &n[1..],
+                        rst_inline(&text)
+                    ));
                     out.push(String::new());
                 }
                 _ => {} // comments, targets, toctree, images, includes: layout only
@@ -158,8 +187,16 @@ fn rst(src: &str) -> String {
             while body.last().is_some_and(|b| b.trim().is_empty()) {
                 body.pop();
             }
-            let min = body.iter().filter(|b| !b.trim().is_empty()).map(|b| indent_of(b)).min().unwrap_or(0);
-            let body: Vec<String> = body.iter().map(|b| b.get(min..).unwrap_or("").to_string()).collect();
+            let min = body
+                .iter()
+                .filter(|b| !b.trim().is_empty())
+                .map(|b| indent_of(b))
+                .min()
+                .unwrap_or(0);
+            let body: Vec<String> = body
+                .iter()
+                .map(|b| b.get(min..).unwrap_or("").to_string())
+                .collect();
             fence(&mut out, "", &body);
             i = j;
             continue;
@@ -196,11 +233,22 @@ fn adoc(src: &str) -> String {
             block = Some((t.to_string(), Vec::new()));
             continue;
         }
-        if t.starts_with("//") && !t.starts_with("///") || attribute.is_match(t) || t == "====" || t == "****" || t == "--" {
+        if t.starts_with("//") && !t.starts_with("///")
+            || attribute.is_match(t)
+            || t == "===="
+            || t == "****"
+            || t == "--"
+        {
             continue;
         }
         if let Some(rest) = t.strip_prefix("[source,") {
-            lang = rest.trim_end_matches(']').split(',').next().unwrap_or("").trim().to_string();
+            lang = rest
+                .trim_end_matches(']')
+                .split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
             continue;
         }
         if t.starts_with('[') && t.ends_with(']') {
@@ -226,7 +274,9 @@ fn adoc(src: &str) -> String {
 }
 
 fn org(src: &str) -> String {
-    let heading = Regex::new(r"^(\*+)\s+(?:(?:TODO|DONE|NEXT|WAITING)\s+)?(\S.*?)(?:\s+:[\w:@]+:)?$").unwrap();
+    let heading =
+        Regex::new(r"^(\*+)\s+(?:(?:TODO|DONE|NEXT|WAITING)\s+)?(\S.*?)(?:\s+:[\w:@]+:)?$")
+            .unwrap();
     let title = Regex::new(r"(?i)^#\+TITLE:\s*(.*)$").unwrap();
     let begin = Regex::new(r"(?i)^#\+BEGIN_SRC\s*(\S*)").unwrap();
     let link = Regex::new(r"\[\[([^\]]+)\]\[([^\]]+)\]\]").unwrap();
@@ -235,7 +285,8 @@ fn org(src: &str) -> String {
     let code = Regex::new(r"(^|\s)[=~]([^\s=~][^=~]*?)[=~](\s|$|[.,;:])").unwrap();
     let italic = Regex::new(r"(^|\s)/([^\s/][^/]*?)/(\s|$|[.,;:])").unwrap();
     let mut out: Vec<String> = Vec::new();
-    let (mut src_lang, mut body, mut in_src, mut in_drawer) = (String::new(), Vec::<String>::new(), false, false);
+    let (mut src_lang, mut body, mut in_src, mut in_drawer) =
+        (String::new(), Vec::<String>::new(), false, false);
     for l in src.lines() {
         let t = l.trim_end();
         if in_src {
@@ -293,7 +344,10 @@ fn tex(src: &str) -> String {
         (Some(a), None) => &src[a + "\\begin{document}".len()..],
         _ => src,
     };
-    let title = Regex::new(r"\\title\{([^}]*)\}").unwrap().captures(src).map(|c| c[1].trim().to_string());
+    let title = Regex::new(r"\\title\{([^}]*)\}")
+        .unwrap()
+        .captures(src)
+        .map(|c| c[1].trim().to_string());
     let comment = Regex::new(r"(?m)(^|[^\\])%.*$").unwrap();
     let mut s = comment.replace_all(body, "$1").into_owned();
 
@@ -311,7 +365,12 @@ fn tex(src: &str) -> String {
                 }
                 inner = next;
             }
-            code.push(inner.trim_matches('\n').replace('\u{3}', "{").replace('\u{4}', "}"));
+            code.push(
+                inner
+                    .trim_matches('\n')
+                    .replace('\u{3}', "{")
+                    .replace('\u{4}', "}"),
+            );
             format!("\n\u{5}{}\u{5}\n", code.len() - 1)
         })
         .into_owned();
@@ -340,7 +399,11 @@ fn tex(src: &str) -> String {
                 match stack.last_mut() {
                     Some((numbered, n)) => {
                         *n += 1;
-                        let bullet = if *numbered { format!("{}.", n) } else { "-".to_string() };
+                        let bullet = if *numbered {
+                            format!("{}.", n)
+                        } else {
+                            "-".to_string()
+                        };
                         format!("\n{}{bullet} ", "  ".repeat(depth))
                     }
                     None => "\n- ".to_string(),
@@ -351,7 +414,10 @@ fn tex(src: &str) -> String {
 
     let subs: &[(&str, &str)] = &[
         (r"\\def\\[a-zA-Z@]+\{(?:[^{}]|\{[^{}]*\})*\}", ""),
-        (r"\\(?:tightlist|hypertarget\{[^}]*\}|bookmark\{[^}]*\})", ""),
+        (
+            r"\\(?:tightlist|hypertarget\{[^}]*\}|bookmark\{[^}]*\})",
+            "",
+        ),
         (r"\\chapter\*?\{([^}]*)\}", "\n# $1\n"),
         (r"\\section\*?\{([^}]*)\}", "\n## $1\n"),
         (r"\\subsection\*?\{([^}]*)\}", "\n### $1\n"),
@@ -363,7 +429,10 @@ fn tex(src: &str) -> String {
         (r"\\href\{([^}]*)\}\{([^}]*)\}", "[$2]($1)"),
         (r"\\url\{([^}]*)\}", "<$1>"),
         (r"\\cite[tp]?\{([^}]*)\}", "[$1]"),
-        (r"\\(?:label|ref|eqref|index|vspace|hspace|newpage|clearpage|maketitle|tableofcontents|centering|noindent)\*?(?:\{[^}]*\})?", ""),
+        (
+            r"\\(?:label|ref|eqref|index|vspace|hspace|newpage|clearpage|maketitle|tableofcontents|centering|noindent)\*?(?:\{[^}]*\})?",
+            "",
+        ),
         (r"\\\\", "\n"),
         (r"~", " "),
         (r"``", "\u{201c}"),
@@ -374,10 +443,19 @@ fn tex(src: &str) -> String {
     }
     s = unescape_tex(&s);
     // Remaining commands: keep their argument text, drop the command name.
-    s = Regex::new(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?").unwrap().replace_all(&s, "").into_owned();
-    s = s.replace(['{', '}'], "").replace('\u{3}', "{").replace('\u{4}', "}");
+    s = Regex::new(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?")
+        .unwrap()
+        .replace_all(&s, "")
+        .into_owned();
+    s = s
+        .replace(['{', '}'], "")
+        .replace('\u{3}', "{")
+        .replace('\u{4}', "}");
     // Tighten lists and collapse blank runs.
-    s = Regex::new(r"\n[ \t]*\n(\s*(?:- |\d+\. ))").unwrap().replace_all(&s, "\n$1").into_owned();
+    s = Regex::new(r"\n[ \t]*\n(\s*(?:- |\d+\. ))")
+        .unwrap()
+        .replace_all(&s, "\n$1")
+        .into_owned();
     for (i, c) in code.iter().enumerate() {
         s = s.replace(&format!("\u{5}{i}\u{5}"), &format!("```\n{c}\n```"));
     }
@@ -412,7 +490,10 @@ mod tests {
 
     #[test]
     fn rst_headings_code_and_inline() {
-        let md = c(Kind::Rst, "Title\n=====\n\nSub\n---\n\nUse ``pcall`` and :func:`wait`.\n\nExample::\n\n    local x = 1\n    print(x)\n\n.. note:: Careful here.\n\n.. code-block:: lua\n\n   return 2\n");
+        let md = c(
+            Kind::Rst,
+            "Title\n=====\n\nSub\n---\n\nUse ``pcall`` and :func:`wait`.\n\nExample::\n\n    local x = 1\n    print(x)\n\n.. note:: Careful here.\n\n.. code-block:: lua\n\n   return 2\n",
+        );
         assert!(md.contains("# Title") && md.contains("## Sub"), "{md}");
         assert!(md.contains("Use `pcall` and `wait`."), "{md}");
         assert!(md.contains("```\nlocal x = 1\nprint(x)\n```"), "{md}");
@@ -422,41 +503,78 @@ mod tests {
 
     #[test]
     fn rst_links_with_double_underscore() {
-        let md = c(Kind::Rst, "See `the\ndocs <https://x.dev>`__ now, and ``code`` here.\n");
-        assert!(md.contains("[the docs](https://x.dev)") && md.contains("`code`"), "{md}");
+        let md = c(
+            Kind::Rst,
+            "See `the\ndocs <https://x.dev>`__ now, and ``code`` here.\n",
+        );
+        assert!(
+            md.contains("[the docs](https://x.dev)") && md.contains("`code`"),
+            "{md}"
+        );
     }
 
     #[test]
     fn pandoc_latex_boilerplate_and_numbered_lists() {
-        let md = c(Kind::Tex, "\\begin{document}\n\\hypertarget{intro}{%\n\\section{Intro}\\label{intro}}\n\n\\begin{enumerate}\n\\def\\labelenumi{\\arabic{enumi}.}\n\\tightlist\n\\item one\n\\item two\n\\end{enumerate}\n\n\\begin{Shaded}\n\\begin{Highlighting}[]\n\\KeywordTok{local} \\NormalTok{x }\\OperatorTok{=} \\DecValTok{1}\n\\end{Highlighting}\n\\end{Shaded}\n\\end{document}\n");
+        let md = c(
+            Kind::Tex,
+            "\\begin{document}\n\\hypertarget{intro}{%\n\\section{Intro}\\label{intro}}\n\n\\begin{enumerate}\n\\def\\labelenumi{\\arabic{enumi}.}\n\\tightlist\n\\item one\n\\item two\n\\end{enumerate}\n\n\\begin{Shaded}\n\\begin{Highlighting}[]\n\\KeywordTok{local} \\NormalTok{x }\\OperatorTok{=} \\DecValTok{1}\n\\end{Highlighting}\n\\end{Shaded}\n\\end{document}\n",
+        );
         assert!(md.contains("## Intro"), "{md}");
         assert!(md.contains("1. one\n2. two"), "{md}");
         assert!(md.contains("```\nlocal x = 1\n```"), "{md}");
-        assert!(!md.contains("enumi") && !md.contains("intro}") && !md.contains("Tok"), "{md}");
+        assert!(
+            !md.contains("enumi") && !md.contains("intro}") && !md.contains("Tok"),
+            "{md}"
+        );
     }
 
     #[test]
     fn asciidoc_headings_lists_code() {
-        let md = c(Kind::Adoc, "= Guide\n:author: me\n\n== Setup\n\n* one\n** nested\n\n[source,lua]\n----\nprint(1)\n----\n\nSee https://x.dev[the site] and *bold*.\n");
-        assert!(md.contains("# Guide") && md.contains("## Setup") && !md.contains(":author:"), "{md}");
-        assert!(md.contains("- one\n  - nested") && md.contains("```lua\nprint(1)\n```"), "{md}");
+        let md = c(
+            Kind::Adoc,
+            "= Guide\n:author: me\n\n== Setup\n\n* one\n** nested\n\n[source,lua]\n----\nprint(1)\n----\n\nSee https://x.dev[the site] and *bold*.\n",
+        );
+        assert!(
+            md.contains("# Guide") && md.contains("## Setup") && !md.contains(":author:"),
+            "{md}"
+        );
+        assert!(
+            md.contains("- one\n  - nested") && md.contains("```lua\nprint(1)\n```"),
+            "{md}"
+        );
         assert!(md.contains("[the site](https://x.dev)") && md.contains("**bold**"));
     }
 
     #[test]
     fn org_headings_code_links() {
-        let md = c(Kind::Org, "#+TITLE: Notes\n* TODO Plan :work:\n:PROPERTIES:\n:ID: 1\n:END:\nSee [[https://a.b][site]] with =code= and *bold*.\n#+BEGIN_SRC lua\nprint(1)\n#+END_SRC\n");
+        let md = c(
+            Kind::Org,
+            "#+TITLE: Notes\n* TODO Plan :work:\n:PROPERTIES:\n:ID: 1\n:END:\nSee [[https://a.b][site]] with =code= and *bold*.\n#+BEGIN_SRC lua\nprint(1)\n#+END_SRC\n",
+        );
         assert!(md.contains("# Notes") && md.contains("# Plan"), "{md}");
         assert!(!md.contains("PROPERTIES"));
-        assert!(md.contains("[site](https://a.b)") && md.contains("`code`") && md.contains("**bold**"));
+        assert!(
+            md.contains("[site](https://a.b)") && md.contains("`code`") && md.contains("**bold**")
+        );
         assert!(md.contains("```lua\nprint(1)\n```"));
     }
 
     #[test]
     fn latex_body_headings_lists() {
-        let md = c(Kind::Tex, "\\documentclass{article}\n\\title{Report}\n\\begin{document}\n\\maketitle\n\\section{Intro}\nSome \\textbf{bold} and \\emph{soft} text. % hidden\n\\begin{itemize}\n\\item First\n\\item Second\n\\end{itemize}\n\\end{document}\n");
+        let md = c(
+            Kind::Tex,
+            "\\documentclass{article}\n\\title{Report}\n\\begin{document}\n\\maketitle\n\\section{Intro}\nSome \\textbf{bold} and \\emph{soft} text. % hidden\n\\begin{itemize}\n\\item First\n\\item Second\n\\end{itemize}\n\\end{document}\n",
+        );
         assert!(md.starts_with("# Report"), "{md}");
-        assert!(md.contains("## Intro") && md.contains("**bold**") && md.contains("*soft*"), "{md}");
-        assert!(md.contains("- First") && md.contains("- Second") && !md.contains("hidden") && !md.contains("documentclass"));
+        assert!(
+            md.contains("## Intro") && md.contains("**bold**") && md.contains("*soft*"),
+            "{md}"
+        );
+        assert!(
+            md.contains("- First")
+                && md.contains("- Second")
+                && !md.contains("hidden")
+                && !md.contains("documentclass")
+        );
     }
 }

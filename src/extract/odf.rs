@@ -7,9 +7,12 @@ use std::io::{Cursor, Read};
 
 pub fn convert(bytes: &[u8], fallback: &str) -> Result<Out> {
     let (content, meta) = if bytes.starts_with(b"PK") {
-        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).context("not a valid OpenDocument archive")?;
+        let mut zip =
+            zip::ZipArchive::new(Cursor::new(bytes)).context("not a valid OpenDocument archive")?;
         let mut content = String::new();
-        zip.by_name("content.xml").context("missing content.xml")?.read_to_string(&mut content)?;
+        zip.by_name("content.xml")
+            .context("missing content.xml")?
+            .read_to_string(&mut content)?;
         let mut meta = String::new();
         if let Ok(mut f) = zip.by_name("meta.xml") {
             let _ = f.read_to_string(&mut meta);
@@ -19,14 +22,27 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<Out> {
         let flat = text::decode(bytes);
         (flat.clone(), flat)
     };
-    let md = content_to_markdown(&content)?;
-    let title = xml_field(&meta, "title").or_else(|| first_heading(&md)).unwrap_or_else(|| fallback.to_string());
+    let (md, images, comments) = parse(&content)?;
+    let title = xml_field(&meta, "title")
+        .or_else(|| first_heading(&md))
+        .unwrap_or_else(|| fallback.to_string());
     let description = xml_field(&meta, "description").or_else(|| xml_field(&meta, "subject"));
-    Ok(Out::new(title, md).with_description(description))
+    let mut out = Out::new(title, md).with_description(description);
+    if images > 0 {
+        out = out.omitting(format!(
+            "{images} image{}",
+            if images == 1 { "" } else { "s" }
+        ));
+    }
+    let _ = comments;
+    Ok(out)
 }
 
 fn attr(e: &quick_xml::events::BytesStart, local: &str) -> Option<String> {
-    e.attributes().flatten().find(|a| a.key.local_name().as_ref() == local).map(|a| a.value.to_string())
+    e.attributes()
+        .flatten()
+        .find(|a| a.key.local_name().as_ref() == local)
+        .map(|a| a.value.to_string())
 }
 
 fn push_ref(r: &quick_xml::events::BytesRef, into: &mut String) {
@@ -44,7 +60,18 @@ fn push_ref(r: &quick_xml::events::BytesRef, into: &mut String) {
     }
 }
 
+#[cfg(test)]
 fn content_to_markdown(xml: &str) -> Result<String> {
+    parse(xml).map(|(md, _, _)| md)
+}
+
+/// Markdown, number of images, number of comments.
+fn parse(xml: &str) -> Result<(String, usize, usize)> {
+    let mut images = 0usize;
+    let mut comments: Vec<String> = Vec::new();
+    let mut in_comment = 0usize;
+    // Paragraphs can nest (a footnote or comment inside a paragraph): park the outer one.
+    let mut parked: Vec<(String, Option<usize>, bool)> = Vec::new();
     let mut reader = Reader::from_str(xml);
     let mut out = String::new();
     let mut notes: Vec<String> = Vec::new();
@@ -62,13 +89,32 @@ fn content_to_markdown(xml: &str) -> Result<String> {
     loop {
         match reader.read_event()? {
             Event::Start(e) | Event::Empty(e) => match e.local_name().as_ref() {
-                "annotation" | "tracked-changes" | "note-citation" => skip += 1,
+                "annotation" => in_comment += 1,
+                "tracked-changes" | "note-citation" => skip += 1,
+                "image" => images += 1,
+                "covered-table-cell" => {
+                    // The space under a merged cell: keep later cells in their columns.
+                    if let Some(row) = table.as_mut().and_then(|t| t.last_mut()) {
+                        row.push(String::new());
+                    }
+                }
                 "h" if skip == 0 => {
+                    if in_text {
+                        parked.push((std::mem::take(&mut text), heading.take(), in_item_para));
+                    }
                     in_text = true;
                     text.clear();
-                    heading = Some(attr(&e, "outline-level").and_then(|v| v.parse().ok()).unwrap_or(1).clamp(1, 6));
+                    heading = Some(
+                        attr(&e, "outline-level")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(1)
+                            .clamp(1, 6),
+                    );
                 }
                 "p" if skip == 0 => {
+                    if in_text {
+                        parked.push((std::mem::take(&mut text), heading.take(), in_item_para));
+                    }
                     in_text = true;
                     text.clear();
                     in_item_para = list_depth > 0;
@@ -77,7 +123,9 @@ fn content_to_markdown(xml: &str) -> Result<String> {
                 "note-body" => in_note += 1,
                 "s" => {
                     if in_text {
-                        text.push_str(&" ".repeat(attr(&e, "c").and_then(|c| c.parse().ok()).unwrap_or(1)));
+                        text.push_str(
+                            &" ".repeat(attr(&e, "c").and_then(|c| c.parse().ok()).unwrap_or(1)),
+                        );
                     }
                 }
                 "tab" if in_text => text.push(' '),
@@ -97,7 +145,8 @@ fn content_to_markdown(xml: &str) -> Result<String> {
             Event::Text(t) if in_text && skip == 0 => text.push_str(&t),
             Event::GeneralRef(r) if in_text && skip == 0 => push_ref(&r, &mut text),
             Event::End(e) => match e.local_name().as_ref() {
-                "annotation" | "tracked-changes" | "note-citation" => skip = skip.saturating_sub(1),
+                "annotation" => in_comment = in_comment.saturating_sub(1),
+                "tracked-changes" | "note-citation" => skip = skip.saturating_sub(1),
                 "list" => list_depth = list_depth.saturating_sub(1),
                 "note-body" => in_note = in_note.saturating_sub(1),
                 "h" | "p" if skip == 0 => {
@@ -105,7 +154,11 @@ fn content_to_markdown(xml: &str) -> Result<String> {
                     text.clear();
                     in_text = false;
                     let h = heading.take();
-                    if table.is_some() {
+                    if in_comment > 0 {
+                        if !t.is_empty() {
+                            comments.push(t);
+                        }
+                    } else if table.is_some() {
                         if !cell.is_empty() && !t.is_empty() {
                             cell.push(' ');
                         }
@@ -116,13 +169,22 @@ fn content_to_markdown(xml: &str) -> Result<String> {
                         } else if let Some(level) = h {
                             out.push_str(&format!("{} {t}\n\n", "#".repeat(level)));
                         } else if in_item_para {
-                            out.push_str(&format!("{}- {t}\n", "  ".repeat(list_depth.saturating_sub(1))));
+                            out.push_str(&format!(
+                                "{}- {t}\n",
+                                "  ".repeat(list_depth.saturating_sub(1))
+                            ));
                         } else {
                             out.push_str(&format!("{t}\n\n"));
                         }
                     }
                     if e.local_name().as_ref() == "p" && list_depth == 0 {
                         in_item_para = false;
+                    }
+                    if let Some((t, h, item)) = parked.pop() {
+                        text = t;
+                        heading = h;
+                        in_item_para = item;
+                        in_text = true;
                     }
                 }
                 "table-cell" => {
@@ -151,6 +213,13 @@ fn content_to_markdown(xml: &str) -> Result<String> {
             _ => {}
         }
     }
+    if !comments.is_empty() {
+        out.push_str("## Comments\n\n");
+        for c in &comments {
+            out.push_str(&format!("- {c}\n"));
+        }
+        out.push('\n');
+    }
     if !notes.is_empty() {
         out.push_str("## Notes\n\n");
         for (i, n) in notes.iter().enumerate() {
@@ -169,12 +238,22 @@ fn content_to_markdown(xml: &str) -> Result<String> {
         tidy.push('\n');
         prev_item = item;
     }
-    Ok(tidy)
+    Ok((tidy, images, comments.len()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paragraph_holding_a_footnote_keeps_its_own_text() {
+        let xml = r#"<office:document-content xmlns:office="o" xmlns:text="t"><office:body><office:text>
+<text:p>Before the note<text:note><text:note-citation>1</text:note-citation><text:note-body><text:p>The note.</text:p></text:note-body></text:note> and after it.</text:p>
+</office:text></office:body></office:document-content>"#;
+        let md = content_to_markdown(xml).unwrap();
+        assert!(md.contains("Before the note and after it."), "{md}");
+        assert!(md.contains("## Notes\n\n1. The note."), "{md}");
+    }
 
     #[test]
     fn converts_headings_lists_tables_and_skips_comments() {
@@ -188,7 +267,8 @@ mod tests {
         let md = content_to_markdown(xml).unwrap();
         assert!(md.contains("# Report\n"), "{md}");
         assert!(md.contains("Fish & chips here"), "{md}");
-        assert!(!md.contains("HIDDEN"));
+        assert!(md.contains("## Comments\n\n- HIDDEN"), "{md}");
+        assert!(!md.contains("Fish & chips hereHIDDEN"));
         assert!(md.contains("- one\n- two\n"), "{md}");
         assert!(md.contains("| A | B |\n| --- | --- |\n| 1 | 2 |"), "{md}");
     }

@@ -55,6 +55,63 @@ struct Engine {
     surface: HashMap<String, HashMap<String, u32>>,
     /// A sentence needs at least one word rarer than this, or it is generic filler.
     min_idf: f32,
+    /// Chosen sentences that are shown together with the sentence before them.
+    joined: HashSet<usize>,
+}
+
+/// Words that point back to an earlier sentence: a summary sentence starting with one of
+/// these makes no sense on its own ("This doubles the limit.").
+const POINTS_BACK: &[&str] = &[
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "they",
+    "them",
+    "their",
+    "he",
+    "she",
+    "his",
+    "her",
+    "however",
+    "but",
+    "also",
+    "therefore",
+    "thus",
+    "so",
+    "and",
+    "or",
+    "then",
+    "such",
+    "furthermore",
+    "moreover",
+    "additionally",
+    "instead",
+    "otherwise",
+    "similarly",
+    "likewise",
+    "hence",
+    "consequently",
+    "meanwhile",
+    "nevertheless",
+    "still",
+    "yet",
+    "here",
+    "there",
+    "both",
+    "another",
+    "other",
+];
+
+fn points_back(text: &str) -> bool {
+    let first: String = text
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect::<String>()
+        .to_lowercase();
+    POINTS_BACK.contains(&first.as_str())
 }
 
 const SIMILAR: f32 = 0.6;
@@ -62,7 +119,12 @@ const MAX_NODES_SHOWN: usize = 120;
 
 type Surface = HashMap<String, HashMap<String, u32>>;
 
-fn index(node: &mut Node, sents: &mut Vec<Sent>, bigram_counts: &mut nlp::Counts, surface: &mut Surface) {
+fn index(
+    node: &mut Node,
+    sents: &mut Vec<Sent>,
+    bigram_counts: &mut nlp::Counts,
+    surface: &mut Surface,
+) {
     let start = sents.len();
     for para in &node.paras {
         for (j, s) in para.iter().enumerate() {
@@ -71,7 +133,11 @@ fn index(node: &mut Node, sents: &mut Vec<Sent>, bigram_counts: &mut nlp::Counts
             }
             let pairs = nlp::tokens_surface(s);
             for (stem, written) in &pairs {
-                *surface.entry(stem.clone()).or_default().entry(written.clone()).or_default() += 1;
+                *surface
+                    .entry(stem.clone())
+                    .or_default()
+                    .entry(written.clone())
+                    .or_default() += 1;
             }
             sents.push(Sent {
                 text: s.clone(),
@@ -119,8 +185,12 @@ impl Engine {
         } else if s.words > 45 {
             score *= 0.5;
         }
+        // The first sentence of a paragraph is usually its topic sentence.
         if s.first_in_para {
-            score *= 1.1;
+            score *= 1.3;
+        }
+        if points_back(&s.text) {
+            score *= 0.6;
         }
         score
     }
@@ -129,7 +199,11 @@ impl Engine {
     fn best(&self, node: &Node) -> Option<String> {
         let (a, b) = node.range;
         (a..b)
-            .filter(|&i| self.informative(i) && (6..=40).contains(&self.sents[i].words))
+            .filter(|&i| {
+                self.informative(i)
+                    && (6..=40).contains(&self.sents[i].words)
+                    && !points_back(&self.sents[i].text)
+            })
             .map(|i| (i, self.score(i, node)))
             .max_by(|x, y| x.1.total_cmp(&y.1).then(y.0.cmp(&x.0)))
             .map(|(i, _)| self.sents[i].text.clone())
@@ -162,6 +236,13 @@ impl Engine {
         let (a, b) = node.range;
         let mut cands: Vec<(usize, f32)> = (a..b)
             .filter(|i| !self.used.contains(i) && self.informative(*i))
+            // Its antecedent was already shown elsewhere, so it would be shown without it.
+            .filter(|&i| {
+                !(points_back(&self.sents[i].text)
+                    && !self.sents[i].first_in_para
+                    && i > 0
+                    && self.used.contains(&(i - 1)))
+            })
             .map(|i| (i, self.score(i, node)))
             .filter(|(_, s)| *s > 0.0)
             .collect();
@@ -182,8 +263,34 @@ impl Engine {
         for i in &picked {
             self.used.insert(*i);
         }
+        // Give a sentence that points back the sentence it points to.
+        let mut absorbed = Vec::new();
+        for &i in &picked {
+            if !points_back(&self.sents[i].text) || self.sents[i].first_in_para || i == 0 {
+                continue;
+            }
+            let prev_in_batch = picked.contains(&(i - 1));
+            if prev_in_batch || !self.used.contains(&(i - 1)) {
+                self.used.insert(i - 1);
+                self.chosen.push(self.sents[i - 1].toks.clone());
+                self.joined.insert(i);
+                if prev_in_batch {
+                    absorbed.push(i - 1);
+                }
+            }
+        }
+        picked.retain(|i| !absorbed.contains(i));
         picked.sort_unstable();
         picked
+    }
+
+    /// What to show for a chosen sentence (with its predecessor when it points back).
+    fn text_of(&self, i: usize) -> String {
+        if self.joined.contains(&i) {
+            format!("{} {}", self.sents[i - 1].text, self.sents[i].text)
+        } else {
+            self.sents[i].text.clone()
+        }
     }
 
     fn keywords(&self, node: &Node, n: usize) -> Vec<String> {
@@ -236,28 +343,69 @@ fn depth_budget(root: &Node) -> usize {
     deepest
 }
 
-fn render_node(e: &mut Engine, node: &Node, depth: usize, max_depth: usize, path: &str, ordinal: usize, out: &mut String) {
+fn render_node(
+    e: &mut Engine,
+    node: &Node,
+    depth: usize,
+    max_depth: usize,
+    path: &str,
+    ordinal: usize,
+    out: &mut String,
+) {
     let indent = "  ".repeat(depth);
     let kws = e.keywords(node, 4);
     let title = e.title(node, ordinal);
     // Segments and chapters are already titled by their keywords.
-    let kw = if kws.is_empty() || title.starts_with("Part ") { String::new() } else { format!(" · _{}_", kws.join(", ")) };
-    out.push_str(&format!("{indent}- **{path} {title}**{kw} · {} words\n", fmt_num(node.words)));
+    let kw = if kws.is_empty() || title.starts_with("Part ") {
+        String::new()
+    } else {
+        format!(" · _{}_", kws.join(", "))
+    };
+    out.push_str(&format!(
+        "{indent}- **{path} {title}**{kw} · {} words\n",
+        fmt_num(node.words)
+    ));
     // A small section is already short: show all of it instead of summarizing it.
     let size = node.range.1 - node.range.0;
-    let k = if size <= 10 && node.words < 200 { size } else { [3, 2, 1][depth.min(2)] };
+    let k = if size <= 10 && node.words < 200 {
+        size
+    } else {
+        [3, 2, 1][depth.min(2)]
+    };
     for i in e.pick(node, k) {
-        out.push_str(&format!("{indent}  - {}\n", e.sents[i].text));
+        out.push_str(&format!("{indent}  - {}\n", e.text_of(i)));
     }
     if depth < max_depth {
         for (n, c) in node.children.iter().enumerate() {
-            render_node(e, c, depth + 1, max_depth, &format!("{path}.{}", n + 1), n + 1, out);
+            render_node(
+                e,
+                c,
+                depth + 1,
+                max_depth,
+                &format!("{path}.{}", n + 1),
+                n + 1,
+                out,
+            );
         }
     } else if !node.children.is_empty() {
-        let titles: Vec<String> = node.children.iter().enumerate().map(|(n, c)| e.title(c, n + 1)).collect();
-        let shown = titles.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
+        let titles: Vec<String> = node
+            .children
+            .iter()
+            .enumerate()
+            .map(|(n, c)| e.title(c, n + 1))
+            .collect();
+        let shown = titles
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("; ");
         let more = titles.len().saturating_sub(8);
-        let tail = if more > 0 { format!("; … (+{more} more)") } else { String::new() };
+        let tail = if more > 0 {
+            format!("; … (+{more} more)")
+        } else {
+            String::new()
+        };
         out.push_str(&format!("{indent}  - _Also covers:_ {shown}{tail}\n"));
     }
 }
@@ -274,7 +422,11 @@ fn describe(node: &Node) -> String {
     let mut acc = (0, 0, 0);
     totals(node, &mut acc);
     let mins = (node.words as f32 / 220.0).ceil() as usize;
-    let mut s = format!("{} words (about {} min read)", fmt_num(node.words), fmt_num(mins.max(1)));
+    let mut s = format!(
+        "{} words (about {} min read)",
+        fmt_num(node.words),
+        fmt_num(mins.max(1))
+    );
     if acc.0 > 0 {
         s.push_str(&format!(", {} sections", acc.0));
     }
@@ -291,7 +443,7 @@ fn fmt_num(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -321,7 +473,15 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
         .map(|(t, d)| (t, (1.0 + docs as f32 / d as f32).ln()))
         .collect();
     let min_idf = if docs >= 6 { 4f32.ln() } else { 0.0 };
-    let mut e = Engine { sents, idf, chosen: Vec::new(), used: HashSet::new(), surface, min_idf };
+    let mut e = Engine {
+        sents,
+        idf,
+        chosen: Vec::new(),
+        used: HashSet::new(),
+        surface,
+        min_idf,
+        joined: HashSet::new(),
+    };
 
     // Skip wrapper nodes (a lone title heading holding everything).
     let mut eff = &root;
@@ -333,7 +493,7 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
 
     let mut out = String::new();
     out.push_str("### At a glance\n\n");
-    out.push_str(&format!("{}", describe(&root)));
+    out.push_str(&describe(&root).to_string());
     if !doc_title.is_empty() {
         out.push_str(&format!(" · {doc_title}"));
     }
@@ -341,7 +501,11 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
 
     // Overview: the single most representative sentence from each top-level part.
     out.push_str("### Overview\n\n");
-    let parts: Vec<&Node> = if eff.children.len() >= 3 { eff.children.iter().collect() } else { vec![eff] };
+    let parts: Vec<&Node> = if eff.children.len() >= 3 {
+        eff.children.iter().collect()
+    } else {
+        vec![eff]
+    };
     let mut overview: Vec<usize> = Vec::new();
     let want = (root.words / 1500).clamp(4, 10);
     if parts.len() == 1 {
@@ -368,14 +532,19 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
         overview.sort_unstable();
     }
     for i in &overview {
-        out.push_str(&format!("- {}\n", e.sents[*i].text));
+        out.push_str(&format!("- {}\n", e.text_of(*i)));
     }
     out.push('\n');
 
     // Key phrases: frequent two-word phrases, then distinctive single words.
     let phrase_score = |p: &str, c: u32| -> f32 {
         let w: Vec<&str> = p.split(' ').collect();
-        c as f32 * (w.iter().map(|x| e.idf.get(*x).copied().unwrap_or(0.5)).sum::<f32>() / w.len() as f32).sqrt()
+        c as f32
+            * (w.iter()
+                .map(|x| e.idf.get(*x).copied().unwrap_or(0.5))
+                .sum::<f32>()
+                / w.len() as f32)
+                .sqrt()
     };
     let mut phrases: Vec<(&String, f32)> = bigram_counts
         .iter()
@@ -395,7 +564,13 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
     terms.extend(single);
     if !terms.is_empty() {
         out.push_str("### Key terms\n\n");
-        out.push_str(&terms.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(" · "));
+        out.push_str(
+            &terms
+                .iter()
+                .map(|t| format!("`{t}`"))
+                .collect::<Vec<_>>()
+                .join(" · "),
+        );
         out.push_str("\n\n");
     }
 
@@ -404,17 +579,29 @@ pub fn digest(markdown: &str, cleanup_note: Option<&str>) -> Option<Digest> {
     out.push_str("### Outline\n\n");
     if eff.children.is_empty() {
         for i in e.pick(eff, 6) {
-            out.push_str(&format!("- {}\n", e.sents[i].text));
+            out.push_str(&format!("- {}\n", e.text_of(i)));
         }
     } else {
         for (n, c) in eff.children.iter().enumerate() {
-            render_node(&mut e, c, 0, max_depth, &format!("{}", n + 1), n + 1, &mut out);
+            render_node(
+                &mut e,
+                c,
+                0,
+                max_depth,
+                &format!("{}", n + 1),
+                n + 1,
+                &mut out,
+            );
         }
     }
     if let Some(note) = cleanup_note {
         out.push_str(&format!("\n_Cleanup: {note}._\n"));
     }
-    Some(Digest { markdown: out, words_in: root.words, lead })
+    Some(Digest {
+        markdown: out,
+        words_in: root.words,
+        lead,
+    })
 }
 
 #[cfg(test)]
@@ -424,9 +611,18 @@ mod tests {
     fn sample() -> String {
         let mut md = String::from("# Handbook\n\n");
         for (title, body) in [
-            ("Saving data", "Player data is saved to a DataStore every minute. Session locking prevents corruption of profiles. Always wrap DataStore calls in pcall because requests are throttled."),
-            ("Money", "Game passes unlock permanent perks for buyers. Developer products sell repeatable boosts to players. The economy needs coin sinks to avoid inflation of prices."),
-            ("Security", "Validate every RemoteEvent argument on the server always. Rate limit remote calls per player to stop exploit spam. Never trust the client for purchases or damage."),
+            (
+                "Saving data",
+                "Player data is saved to a DataStore every minute. Session locking prevents corruption of profiles. Always wrap DataStore calls in pcall because requests are throttled.",
+            ),
+            (
+                "Money",
+                "Game passes unlock permanent perks for buyers. Developer products sell repeatable boosts to players. The economy needs coin sinks to avoid inflation of prices.",
+            ),
+            (
+                "Security",
+                "Validate every RemoteEvent argument on the server always. Rate limit remote calls per player to stop exploit spam. Never trust the client for purchases or damage.",
+            ),
         ] {
             md.push_str(&format!("## {title}\n\n"));
             for _ in 0..6 {
@@ -440,15 +636,52 @@ mod tests {
     #[test]
     fn digest_has_overview_terms_and_outline_per_section() {
         let d = digest(&sample(), None).unwrap();
-        for needle in ["### Overview", "### Key terms", "### Outline", "Saving data", "Money", "Security"] {
-            assert!(d.markdown.contains(needle), "missing {needle}\n{}", d.markdown);
+        for needle in [
+            "### Overview",
+            "### Key terms",
+            "### Outline",
+            "Saving data",
+            "Money",
+            "Security",
+        ] {
+            assert!(
+                d.markdown.contains(needle),
+                "missing {needle}\n{}",
+                d.markdown
+            );
         }
     }
 
     #[test]
     fn duplicate_sentences_are_not_repeated() {
         let d = digest(&sample(), None).unwrap();
-        assert_eq!(d.markdown.matches("Session locking prevents").count(), 1, "{}", d.markdown);
+        assert_eq!(
+            d.markdown.matches("Session locking prevents").count(),
+            1,
+            "{}",
+            d.markdown
+        );
+    }
+
+    #[test]
+    fn a_sentence_that_points_back_brings_its_predecessor() {
+        let mut md = String::from("# Limits\n\n");
+        for i in 0..12 {
+            md.push_str(&format!(
+                "Section {i} covers ordinary filler about servers and players today.\n\n"
+            ));
+        }
+        md.push_str("## Throttling\n\nThe DataStore budget refills every minute for each server. This doubles the throttling budget for premium experiences dramatically.\n\n");
+        let d = digest(&md, None).unwrap();
+        let line = d.markdown.lines().find(|l| l.contains("This doubles"));
+        if let Some(l) = line {
+            assert!(
+                l.contains("The DataStore budget refills every minute"),
+                "{}",
+                d.markdown
+            );
+        }
+        assert!(!d.lead.unwrap_or_default().starts_with("This"));
     }
 
     #[test]

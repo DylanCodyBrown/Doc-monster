@@ -31,7 +31,10 @@ fn stem(w: &str) -> String {
 
 /// Meaningful lowercase words: no stop words, no bare numbers, at least 3 letters.
 pub fn tokens(text: &str) -> Vec<String> {
-    tokens_surface(text).into_iter().map(|(stem, _)| stem).collect()
+    tokens_surface(text)
+        .into_iter()
+        .map(|(stem, _)| stem)
+        .collect()
 }
 
 /// Like `tokens`, but also returns the word as written (lowercased) for display.
@@ -64,9 +67,21 @@ pub fn cosine(a: &Counts, b: &Counts) -> f32 {
         .iter()
         .filter_map(|(k, v)| large.get(k).map(|w| f64::from(*v) * f64::from(*w)))
         .sum();
-    let na: f64 = a.values().map(|v| f64::from(*v).powi(2)).sum::<f64>().sqrt();
-    let nb: f64 = b.values().map(|v| f64::from(*v).powi(2)).sum::<f64>().sqrt();
-    if na == 0.0 || nb == 0.0 { 0.0 } else { (dot / (na * nb)) as f32 }
+    let na: f64 = a
+        .values()
+        .map(|v| f64::from(*v).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    let nb: f64 = b
+        .values()
+        .map(|v| f64::from(*v).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        (dot / (na * nb)) as f32
+    }
 }
 
 pub fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
@@ -77,7 +92,9 @@ pub fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
     inter / ((a.len() + b.len()) as f32 - inter)
 }
 
-const ABBREV: &[&str] = &["e.g", "i.e", "vs", "etc", "mr", "mrs", "dr", "fig", "no", "approx", "inc", "st"];
+const ABBREV: &[&str] = &[
+    "e.g", "i.e", "vs", "etc", "mr", "mrs", "dr", "fig", "no", "approx", "inc", "st",
+];
 
 /// Split prose into sentences without breaking on decimals or common abbreviations.
 pub fn sentences(text: &str) -> Vec<String> {
@@ -88,7 +105,9 @@ pub fn sentences(text: &str) -> Vec<String> {
     while i < chars.len() {
         if matches!(chars[i], '.' | '!' | '?') {
             let mut j = i + 1;
-            while j < chars.len() && matches!(chars[j], '.' | '!' | '?' | '"' | '\'' | ')' | '”' | '’') {
+            while j < chars.len()
+                && matches!(chars[j], '.' | '!' | '?' | '"' | '\'' | ')' | '”' | '’')
+            {
                 j += 1;
             }
             let at_end = j >= chars.len();
@@ -111,7 +130,9 @@ pub fn sentences(text: &str) -> Vec<String> {
                     .rev()
                     .collect::<String>()
                     .to_lowercase();
-                let abbrev = chars[i] == '.' && (ABBREV.contains(&word.as_str()) || (word.chars().count() == 1 && word.chars().all(char::is_alphabetic)));
+                let abbrev = chars[i] == '.'
+                    && (ABBREV.contains(&word.as_str())
+                        || (word.chars().count() == 1 && word.chars().all(char::is_alphabetic)));
                 if next_ok && !abbrev {
                     let s: String = chars[start..j].iter().collect();
                     let s = s.trim();
@@ -148,12 +169,13 @@ pub fn plain(s: &str) -> String {
                 // [text](url) -> text
                 if let Some(close) = b[i..].iter().position(|&c| c == ']') {
                     let after = i + close + 1;
-                    if after < b.len() && b[after] == '(' {
-                        if let Some(p) = b[after..].iter().position(|&c| c == ')') {
-                            out.extend(&b[i + 1..i + close]);
-                            i = after + p + 1;
-                            continue;
-                        }
+                    if after < b.len()
+                        && b[after] == '('
+                        && let Some(p) = b[after..].iter().position(|&c| c == ')')
+                    {
+                        out.extend(&b[i + 1..i + close]);
+                        i = after + p + 1;
+                        continue;
                     }
                 }
                 out.push('[');
@@ -166,35 +188,6 @@ pub fn plain(s: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn splits_sentences_but_not_decimals_or_abbreviations() {
-        let s = sentences("Version 3.5 shipped. See e.g. the guide. It works! Really? Yes.");
-        assert_eq!(s, vec!["Version 3.5 shipped.", "See e.g. the guide.", "It works!", "Really?", "Yes."]);
-    }
-
-    #[test]
-    fn tokens_drop_stop_words_and_stem_plurals() {
-        assert_eq!(tokens("The servers are saving 100 entries"), vec!["server", "saving", "entry"]);
-        assert_eq!(sentences("One in 3. Next one."), vec!["One in 3.", "Next one."]);
-    }
-
-    #[test]
-    fn jaccard_basic() {
-        let a: HashSet<String> = ["x", "y"].iter().map(|s| s.to_string()).collect();
-        let b: HashSet<String> = ["y", "z"].iter().map(|s| s.to_string()).collect();
-        assert!((jaccard(&a, &b) - 1.0 / 3.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn plain_strips_markup() {
-        assert_eq!(plain("**Bold** and [a link](http://x.y) here"), "Bold and a link here");
-    }
 }
 
 /// Adjacent pairs of meaningful words ("session locking"), used to find key phrases.
@@ -211,4 +204,51 @@ pub fn bigrams(text: &str) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_sentences_but_not_decimals_or_abbreviations() {
+        let s = sentences("Version 3.5 shipped. See e.g. the guide. It works! Really? Yes.");
+        assert_eq!(
+            s,
+            vec![
+                "Version 3.5 shipped.",
+                "See e.g. the guide.",
+                "It works!",
+                "Really?",
+                "Yes."
+            ]
+        );
+    }
+
+    #[test]
+    fn tokens_drop_stop_words_and_stem_plurals() {
+        assert_eq!(
+            tokens("The servers are saving 100 entries"),
+            vec!["server", "saving", "entry"]
+        );
+        assert_eq!(
+            sentences("One in 3. Next one."),
+            vec!["One in 3.", "Next one."]
+        );
+    }
+
+    #[test]
+    fn jaccard_basic() {
+        let a: HashSet<String> = ["x", "y"].iter().map(|s| s.to_string()).collect();
+        let b: HashSet<String> = ["y", "z"].iter().map(|s| s.to_string()).collect();
+        assert!((jaccard(&a, &b) - 1.0 / 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn plain_strips_markup() {
+        assert_eq!(
+            plain("**Bold** and [a link](http://x.y) here"),
+            "Bold and a link here"
+        );
+    }
 }

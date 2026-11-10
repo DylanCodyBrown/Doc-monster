@@ -18,11 +18,18 @@ pub struct Column {
     trues: usize,
     texts: HashMap<String, usize>,
     overflow: bool,
+    dates: usize,
+    first_date: String,
+    last_date: String,
 }
 
 impl Column {
     pub fn new(name: impl Into<String>, noun: &'static str) -> Column {
-        Column { name: name.into(), noun, ..Default::default() }
+        Column {
+            name: name.into(),
+            noun,
+            ..Default::default()
+        }
     }
 
     pub fn add_number(&mut self, v: f64) {
@@ -35,6 +42,18 @@ impl Column {
         }
         self.numbers += 1;
         self.sum += v;
+        self.filled += 1;
+    }
+
+    /// A date or time already written as ISO text ("2026-11-10"), which sorts correctly as text.
+    pub fn add_date(&mut self, iso: &str) {
+        if self.dates == 0 || iso < self.first_date.as_str() {
+            self.first_date = iso.to_string();
+        }
+        if self.dates == 0 || iso > self.last_date.as_str() {
+            self.last_date = iso.to_string();
+        }
+        self.dates += 1;
         self.filled += 1;
     }
 
@@ -59,10 +78,10 @@ impl Column {
         if t.is_empty() {
             return;
         }
-        if let Ok(v) = t.replace(',', "").parse::<f64>() {
-            if v.is_finite() {
-                return self.add_number(v);
-            }
+        if let Ok(v) = t.replace(',', "").parse::<f64>()
+            && v.is_finite()
+        {
+            return self.add_number(v);
         }
         match t.to_ascii_lowercase().as_str() {
             "true" | "false" => self.add_bool(t.eq_ignore_ascii_case("true")),
@@ -75,7 +94,20 @@ impl Column {
         if self.filled == 0 {
             return format!("{noun} \"{name}\" is empty.");
         }
-        let kinds = usize::from(self.numbers > 0) + usize::from(self.bools > 0) + usize::from(!self.texts.is_empty());
+        let kinds = usize::from(self.numbers > 0)
+            + usize::from(self.bools > 0)
+            + usize::from(!self.texts.is_empty())
+            + usize::from(self.dates > 0);
+        if self.dates * 2 >= self.filled {
+            return if self.first_date == self.last_date {
+                format!("{noun} \"{name}\" holds the date {}.", self.first_date)
+            } else {
+                format!(
+                    "{noun} \"{name}\" holds dates from {} to {}.",
+                    self.first_date, self.last_date
+                )
+            };
+        }
         if self.numbers * 2 >= self.filled {
             let mut s = format!(
                 "{noun} \"{name}\" is numeric: smallest {}, largest {}, average {}, total {}.",
@@ -104,10 +136,29 @@ impl Column {
             .take(3)
             .map(|(v, c)| format!("{} ({})", clip(v, 40), group(&c.to_string())))
             .collect();
-        let distinct = if self.overflow { format!("over {MAX_DISTINCT_TRACKED}") } else { group(&self.texts.len().to_string()) };
-        let values = if self.texts.len() == 1 && !self.overflow { "value" } else { "values" };
-        let fill = if self.filled < rows { format!(", filled in {} of {} rows", self.filled, group(&rows.to_string())) } else { String::new() };
-        format!("{noun} \"{name}\" has {distinct} distinct {values}{fill}; most common: {}.", shown.join(", "))
+        let distinct = if self.overflow {
+            format!("over {MAX_DISTINCT_TRACKED}")
+        } else {
+            group(&self.texts.len().to_string())
+        };
+        let values = if self.texts.len() == 1 && !self.overflow {
+            "value"
+        } else {
+            "values"
+        };
+        let fill = if self.filled < rows {
+            format!(
+                ", filled in {} of {} rows",
+                self.filled,
+                group(&rows.to_string())
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "{noun} \"{name}\" has {distinct} distinct {values}{fill}; most common: {}.",
+            shown.join(", ")
+        )
     }
 }
 
@@ -122,7 +173,7 @@ fn clip(s: &str, max: usize) -> String {
 pub fn group(digits: &str) -> String {
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -131,8 +182,14 @@ pub fn group(digits: &str) -> String {
 }
 
 pub fn num(v: f64) -> String {
-    let text = if v.fract() == 0.0 && v.abs() < 1e15 { format!("{}", v.abs() as i64) } else { format!("{:.2}", v.abs()) };
-    let (int, frac) = text.split_once('.').map_or((text.as_str(), None), |(a, b)| (a, Some(b)));
+    let text = if v.fract() == 0.0 && v.abs() < 1e15 {
+        format!("{}", v.abs() as i64)
+    } else {
+        format!("{:.2}", v.abs())
+    };
+    let (int, frac) = text
+        .split_once('.')
+        .map_or((text.as_str(), None), |(a, b)| (a, Some(b)));
     let sign = if v < 0.0 { "-" } else { "" };
     match frac {
         Some(f) => format!("{sign}{}.{f}", group(int)),

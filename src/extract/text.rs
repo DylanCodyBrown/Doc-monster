@@ -5,21 +5,35 @@ use std::path::Path;
 /// Decode bytes of unknown encoding: byte order marks first, then UTF-8, then Windows-1252.
 pub fn decode(bytes: &[u8]) -> String {
     if let Some((enc, bom_len)) = encoding_rs::Encoding::for_bom(bytes) {
-        return enc.decode_without_bom_handling(&bytes[bom_len..]).0.into_owned();
+        return enc
+            .decode_without_bom_handling(&bytes[bom_len..])
+            .0
+            .into_owned();
     }
     match std::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(_) => encoding_rs::WINDOWS_1252.decode_without_bom_handling(bytes).0.into_owned(),
+        Err(_) => encoding_rs::WINDOWS_1252
+            .decode_without_bom_handling(bytes)
+            .0
+            .into_owned(),
     }
 }
 
 pub fn looks_like_text(head: &[u8]) -> bool {
-    if head.starts_with(&[0xFF, 0xFE]) || head.starts_with(&[0xFE, 0xFF]) || head.starts_with(&[0xEF, 0xBB, 0xBF]) {
+    if head.starts_with(&[0xFF, 0xFE])
+        || head.starts_with(&[0xFE, 0xFF])
+        || head.starts_with(&[0xEF, 0xBB, 0xBF])
+    {
         return true;
     }
     let sample = &head[..head.len().min(4096)];
     !sample.contains(&0)
-        && sample.iter().filter(|&&b| b < 9 || (b > 13 && b < 32)).count() * 100 <= sample.len().max(1)
+        && sample
+            .iter()
+            .filter(|&&b| b < 9 || (b > 13 && b < 32))
+            .count()
+            * 100
+            <= sample.len().max(1)
 }
 
 pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
@@ -30,8 +44,12 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
 
 /// Split a leading YAML front matter block off a Markdown file.
 pub fn split_front_matter(text: &str) -> (Option<&str>, &str) {
-    let rest = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"));
-    let Some(rest) = rest else { return (None, text) };
+    let rest = text
+        .strip_prefix("---\n")
+        .or_else(|| text.strip_prefix("---\r\n"));
+    let Some(rest) = rest else {
+        return (None, text);
+    };
     let mut offset = 0;
     for line in rest.split_inclusive('\n') {
         if line.trim_end() == "---" || line.trim_end() == "..." {
@@ -51,10 +69,19 @@ pub fn convert_markdown(bytes: &[u8], fallback: &str) -> Result<Out> {
     let mut leftover = String::new();
     if let Some(fm) = fm {
         for line in fm.lines() {
-            let key = line.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().trim_matches(['"', '\''])));
+            let key = line.split_once(':').map(|(k, v)| {
+                (
+                    k.trim().to_ascii_lowercase(),
+                    v.trim().trim_matches(['"', '\'']),
+                )
+            });
             match key {
-                Some((k, v)) if k == "title" && !v.is_empty() && title.is_none() => title = Some(v.to_string()),
-                Some((k, v)) if k == "description" && !v.is_empty() && description.is_none() => description = Some(v.to_string()),
+                Some((k, v)) if k == "title" && !v.is_empty() && title.is_none() => {
+                    title = Some(v.to_string())
+                }
+                Some((k, v)) if k == "description" && !v.is_empty() && description.is_none() => {
+                    description = Some(v.to_string())
+                }
                 _ => {
                     leftover.push_str(line);
                     leftover.push('\n');
@@ -64,7 +91,10 @@ pub fn convert_markdown(bytes: &[u8], fallback: &str) -> Result<Out> {
     }
     let mut md = body.trim_start_matches('\n').to_string();
     if !leftover.trim().is_empty() {
-        md.push_str(&format!("\n\n## Original front matter\n\n```yaml\n{}\n```\n", leftover.trim_end()));
+        md.push_str(&format!(
+            "\n\n## Original front matter\n\n```yaml\n{}\n```\n",
+            leftover.trim_end()
+        ));
     }
     let title = title
         .or_else(|| first_heading(&md))
@@ -111,7 +141,10 @@ mod tests {
         assert_eq!(out.title, "My Doc");
         assert_eq!(out.description.as_deref(), Some("About stuff"));
         assert!(out.markdown.starts_with("# Heading"));
-        assert!(out.markdown.contains("## Original front matter") && out.markdown.contains("tags: [a, b]"));
+        assert!(
+            out.markdown.contains("## Original front matter")
+                && out.markdown.contains("tags: [a, b]")
+        );
         assert!(!out.markdown.contains("title: \"My Doc\""));
     }
 

@@ -7,10 +7,40 @@ use regex::Regex;
 use std::collections::HashMap;
 
 const SKIP_DESTINATIONS: &[&str] = &[
-    "fonttbl", "colortbl", "stylesheet", "info", "pict", "header", "footer", "headerl", "headerr", "headerf", "footerl",
-    "footerr", "footerf", "footnote", "themedata", "datastore", "latentstyles", "listtable", "listoverridetable",
-    "rsidtbl", "generator", "xmlnstbl", "colorschememapping", "fldinst", "object", "bkmkstart", "bkmkend", "pntext",
-    "pnseclvl", "filetbl", "revtbl", "mmathPr", "nonshppict", "shpinst",
+    "fonttbl",
+    "colortbl",
+    "stylesheet",
+    "info",
+    "pict",
+    "header",
+    "footer",
+    "headerl",
+    "headerr",
+    "headerf",
+    "footerl",
+    "footerr",
+    "footerf",
+    "footnote",
+    "themedata",
+    "datastore",
+    "latentstyles",
+    "listtable",
+    "listoverridetable",
+    "rsidtbl",
+    "generator",
+    "xmlnstbl",
+    "colorschememapping",
+    "fldinst",
+    "object",
+    "bkmkstart",
+    "bkmkend",
+    "pntext",
+    "pnseclvl",
+    "filetbl",
+    "revtbl",
+    "mmathPr",
+    "nonshppict",
+    "shpinst",
 ];
 
 struct Frame {
@@ -18,8 +48,9 @@ struct Frame {
     uc: usize,
 }
 
-pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
-    if !bytes.starts_with(b"{\\rtf") {
+pub fn convert(bytes: &[u8], fallback: &str) -> Result<super::Out> {
+    // Some writers omit the \rtf1 header; any file opening with a control group is accepted.
+    if !bytes.starts_with(b"{\\") {
         bail!("not an RTF file");
     }
     // Latin-1 view of the bytes: RTF is 7-bit ASCII with escapes.
@@ -61,7 +92,10 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
         blocks.push(t);
         table.clear();
     };
-    let end_para = |para: &mut String, style: &mut Option<u32>, list: &mut bool, blocks: &mut Vec<String>| {
+    let end_para = |para: &mut String,
+                    style: &mut Option<u32>,
+                    list: &mut bool,
+                    blocks: &mut Vec<String>| {
         let t = para.split_whitespace().collect::<Vec<_>>().join(" ");
         if !t.is_empty() {
             match style.and_then(|s| headings.get(&s)) {
@@ -91,10 +125,15 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
                 let rest: String = src[i + 1..(i + 40).min(src.len())].iter().collect();
                 let hidden = rest.starts_with("\\*")
                     || SKIP_DESTINATIONS.iter().any(|d| {
-                        rest.strip_prefix('\\')
-                            .is_some_and(|r| r.starts_with(d) && !r[d.len()..].starts_with(|ch: char| ch.is_ascii_alphabetic()))
+                        rest.strip_prefix('\\').is_some_and(|r| {
+                            r.starts_with(d)
+                                && !r[d.len()..].starts_with(|ch: char| ch.is_ascii_alphabetic())
+                        })
                     });
-                stack.push(Frame { skip: skipping || hidden, uc });
+                stack.push(Frame {
+                    skip: skipping || hidden,
+                    uc,
+                });
                 i += 1;
             }
             '}' => {
@@ -114,16 +153,20 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
                             i += 2;
                             if skip_chars > 0 {
                                 skip_chars -= 1;
-                            } else if !skipping {
-                                if let Ok(b) = u8::from_str_radix(&hex, 16) {
-                                    para.push_str(&encoding_rs::WINDOWS_1252.decode_without_bom_handling(&[b]).0);
-                                }
+                            } else if !skipping && let Ok(b) = u8::from_str_radix(&hex, 16) {
+                                para.push_str(
+                                    &encoding_rs::WINDOWS_1252
+                                        .decode_without_bom_handling(&[b])
+                                        .0,
+                                );
                             }
                         }
                         '~' if !skipping => para.push('\u{a0}'),
                         '_' if !skipping => para.push('-'),
                         '{' | '}' | '\\' if !skipping => para.push(n),
-                        '\n' | '\r' if !skipping => end_para(&mut para, &mut para_style, &mut para_list, &mut blocks),
+                        '\n' | '\r' if !skipping => {
+                            end_para(&mut para, &mut para_style, &mut para_list, &mut blocks)
+                        }
                         _ => {}
                     }
                     continue;
@@ -141,7 +184,12 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
                 while i < src.len() && src[i].is_ascii_digit() {
                     i += 1;
                 }
-                let param: Option<i64> = src[ds..i].iter().collect::<String>().parse().ok().map(|v: i64| if neg { -v } else { v });
+                let param: Option<i64> = src[ds..i]
+                    .iter()
+                    .collect::<String>()
+                    .parse()
+                    .ok()
+                    .map(|v: i64| if neg { -v } else { v });
                 if src.get(i) == Some(&' ') {
                     i += 1;
                 }
@@ -188,7 +236,12 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
                     "rdblquote" => para.push('\u{201d}'),
                     "bullet" => para.push('•'),
                     "cell" => {
-                        row.push(para.split_whitespace().collect::<Vec<_>>().join(" ").replace('|', "\\|"));
+                        row.push(
+                            para.split_whitespace()
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                                .replace('|', "\\|"),
+                        );
                         para.clear();
                     }
                     "row" => {
@@ -216,9 +269,43 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
 
     // Characters above 0x7F that were not escaped came through as Latin-1; re-decode if the text is UTF-8.
     let md = blocks.join("\n\n") + "\n";
-    let md = text::decode(md.chars().map(|c| c as u32).all(|c| c < 256).then(|| md.chars().map(|c| c as u8).collect::<Vec<u8>>()).as_deref().unwrap_or(md.as_bytes()));
+    let md = text::decode(
+        md.chars()
+            .map(|c| c as u32)
+            .all(|c| c < 256)
+            .then(|| md.chars().map(|c| c as u8).collect::<Vec<u8>>())
+            .as_deref()
+            .unwrap_or(md.as_bytes()),
+    );
     let title = first_heading(&md).unwrap_or_else(|| fallback.to_string());
-    Ok((title, md))
+    let mut out = super::Out::new(title, md);
+    // Destinations that were skipped, so the output can say what it left out.
+    let count = |needle: &str| raw.matches(needle).count();
+    let notes = count("\\footnote ") + count("\\footnote\\") + count("\\footnote{");
+    let comments = count("{\\*\\annotation") + count("{\\annotation");
+    let pictures = count("{\\pict") + count("{\\*\\shppict");
+    if notes > 0 {
+        out = out.omitting(format!(
+            "{notes} footnote{}",
+            if notes == 1 { "" } else { "s" }
+        ));
+    }
+    if comments > 0 {
+        out = out.omitting(format!(
+            "{comments} comment{}",
+            if comments == 1 { "" } else { "s" }
+        ));
+    }
+    if count("{\\header") + count("{\\footer") > 0 {
+        out = out.omitting("page headers and footers");
+    }
+    if pictures > 0 {
+        out = out.omitting(format!(
+            "{pictures} image{}",
+            if pictures == 1 { "" } else { "s" }
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -228,7 +315,8 @@ mod tests {
     #[test]
     fn extracts_text_unicode_and_skips_tables_of_fonts() {
         let rtf = br"{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}}{\colortbl;\red0\green0\blue0;}{\stylesheet{\s1 heading 1;}}\pard\s1 Big Title\par\pard Caf\'e9 \u8364? and {\b bold} text.\par Second paragraph.\par}";
-        let (title, md) = convert(rtf, "f").unwrap();
+        let out = convert(rtf, "f").unwrap();
+        let (title, md) = (out.title, out.markdown);
         assert_eq!(title, "Big Title", "{md}");
         assert!(md.contains("# Big Title"), "{md}");
         assert!(md.contains("Café € and bold text."), "{md}");

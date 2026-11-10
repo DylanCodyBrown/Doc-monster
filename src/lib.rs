@@ -24,6 +24,8 @@ pub struct Document {
     pub description: Option<String>,
     /// A summary made by the reader itself (e.g. the shape of a data file).
     pub summary: Option<String>,
+    /// Things in the source that are not in the output, reported so nothing is lost silently.
+    pub omitted: Vec<String>,
     pub source: PathBuf,
     pub format: extract::Format,
     /// Full-fidelity Markdown conversion of the source.

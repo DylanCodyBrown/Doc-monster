@@ -91,7 +91,10 @@ fn normalize(input: &str, report: &mut CleanReport) -> Vec<Line> {
             if is_fence(raw) {
                 in_fence = false;
             }
-            out.push(Line { text: raw.to_string(), fenced: true });
+            out.push(Line {
+                text: raw.to_string(),
+                fenced: true,
+            });
             continue;
         }
         let mut line = raw.to_string();
@@ -124,17 +127,24 @@ fn normalize(input: &str, report: &mut CleanReport) -> Vec<Line> {
         }
         if is_fence(&line) {
             in_fence = true;
-            out.push(Line { text: line.trim_end().to_string(), fenced: true });
+            out.push(Line {
+                text: line.trim_end().to_string(),
+                fenced: true,
+            });
             continue;
         }
         let line = br.replace_all(&line, " ").trim_end().to_string();
-        out.push(Line { text: line, fenced: false });
+        out.push(Line {
+            text: line,
+            fenced: false,
+        });
     }
     out
 }
 
 fn drop_page_markers(lines: &mut Vec<Line>, report: &mut CleanReport) {
-    let re = Regex::new(r"(?i)^\s*(page\s+\d+(\s+(of|/)\s+\d+)?|-\s*\d+\s*-|\d+\s*/\s*\d+)\s*$").unwrap();
+    let re = Regex::new(r"(?i)^\s*(page\s+\d+(\s+(of|/)\s+\d+)?|-\s*\d+\s*-|\d+\s*/\s*\d+)\s*$")
+        .unwrap();
     let before = lines.len();
     lines.retain(|l| l.fenced || !re.is_match(&l.text));
     report.page_markers += before - lines.len();
@@ -148,7 +158,9 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
         if l.fenced || t.len() < 12 || t.len() > 200 {
             return None;
         }
-        if t.starts_with(['#', '-', '*', '+', '|', '>', '<', '`']) || t.chars().next()?.is_ascii_digit() {
+        if t.starts_with(['#', '-', '*', '+', '|', '>', '<', '`'])
+            || t.chars().next()?.is_ascii_digit()
+        {
             return None;
         }
         // Page headers and footers are labels, not sentences: a repeated line that ends like a
@@ -156,7 +168,9 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
         if t.ends_with(['.', '!', '?', '"', '\u{201d}', ')']) {
             return None;
         }
-        let blank = |j: Option<usize>| j.is_none_or(|j| lines.get(j).is_none_or(|x| x.text.trim().is_empty()));
+        let blank = |j: Option<usize>| {
+            j.is_none_or(|j| lines.get(j).is_none_or(|x| x.text.trim().is_empty()))
+        };
         (blank(i.checked_sub(1)) && blank(Some(i + 1))).then(|| t.to_lowercase())
     };
     let mut counts: HashMap<String, usize> = HashMap::new();
@@ -172,8 +186,12 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
     // Real page furniture is spread through the document (a gap of several lines between
     // repeats), not clustered in one spot.
     let spread = |key: &str| -> bool {
-        let at: Vec<usize> = (0..lines.len()).filter(|&i| standalone(i, lines).as_deref() == Some(key)).collect();
-        at.last().zip(at.first()).is_some_and(|(l, f)| (l - f) >= 5 * (at.len() - 1))
+        let at: Vec<usize> = (0..lines.len())
+            .filter(|&i| standalone(i, lines).as_deref() == Some(key))
+            .collect();
+        at.last()
+            .zip(at.first())
+            .is_some_and(|(l, f)| (l - f) >= 5 * (at.len() - 1))
     };
     let keys: Vec<String> = counts.keys().cloned().collect();
     for k in keys {
@@ -189,7 +207,9 @@ fn drop_boilerplate(lines: &mut Vec<Line>, report: &mut CleanReport) {
     for i in 0..lines.len() {
         match standalone(i, lines) {
             Some(k) if counts.contains_key(&k) => {
-                originals.entry(k).or_insert_with(|| lines[i].text.trim().to_string());
+                originals
+                    .entry(k)
+                    .or_insert_with(|| lines[i].text.trim().to_string());
                 keep.push(false);
             }
             _ => keep.push(true),
@@ -219,10 +239,19 @@ fn fix_headings(lines: &mut Vec<Line>, report: &mut CleanReport) {
         let plain = !a.fenced
             && !a.text.trim().is_empty()
             && a.text.len() <= 100
-            && !a.text.trim_start().starts_with(['#', '-', '*', '+', '|', '>', '<', '`'])
+            && !a
+                .text
+                .trim_start()
+                .starts_with(['#', '-', '*', '+', '|', '>', '<', '`'])
             && prev_blank;
         if plain && !b.fenced {
-            let level = if eq.is_match(&b.text) { Some(1) } else if dash.is_match(&b.text) { Some(2) } else { None };
+            let level = if eq.is_match(&b.text) {
+                Some(1)
+            } else if dash.is_match(&b.text) {
+                Some(2)
+            } else {
+                None
+            };
             if let Some(level) = level {
                 lines[i].text = format!("{} {}", "#".repeat(level), lines[i].text.trim());
                 lines.remove(i + 1);
@@ -239,7 +268,9 @@ fn fix_headings(lines: &mut Vec<Line>, report: &mut CleanReport) {
         if !l.text.starts_with('#') {
             continue;
         }
-        let Some(c) = atx.captures(&l.text) else { continue };
+        let Some(c) = atx.captures(&l.text) else {
+            continue;
+        };
         let (hashes, title) = (c[1].len(), c[2].to_string());
         let well_formed = l.text.starts_with(&format!("{} ", &c[1]));
         if !well_formed && !title.chars().next().is_some_and(char::is_alphanumeric) {
@@ -297,7 +328,13 @@ fn fix_tables(lines: &mut Vec<Line>, report: &mut CleanReport) {
     let mut i = 0;
     while i < lines.len() {
         if lines[i].fenced || !lines[i].text.trim_start().starts_with('|') {
-            out.push(std::mem::replace(&mut lines[i], Line { text: String::new(), fenced: false }));
+            out.push(std::mem::replace(
+                &mut lines[i],
+                Line {
+                    text: String::new(),
+                    fenced: false,
+                },
+            ));
             i += 1;
             continue;
         }
@@ -308,7 +345,9 @@ fn fix_tables(lines: &mut Vec<Line>, report: &mut CleanReport) {
         let rows: Vec<Vec<String>> = lines[start..i]
             .iter()
             .enumerate()
-            .filter(|(k, l)| !(*k == 1 && sep.is_match(&l.text)) && !(*k > 1 && sep.is_match(&l.text)))
+            .filter(|(k, l)| {
+                !(*k == 1 && sep.is_match(&l.text)) && !(*k > 1 && sep.is_match(&l.text))
+            })
             .map(|(_, l)| split_row(&l.text))
             .collect();
         let width = rows.iter().map(Vec::len).max().unwrap_or(0);
@@ -327,9 +366,15 @@ fn fix_tables(lines: &mut Vec<Line>, report: &mut CleanReport) {
         }
         // A table must start on its own paragraph.
         if out.last().is_some_and(|l| !l.text.trim().is_empty()) {
-            out.push(Line { text: String::new(), fenced: false });
+            out.push(Line {
+                text: String::new(),
+                fenced: false,
+            });
         }
-        out.extend(block.into_iter().map(|text| Line { text, fenced: false }));
+        out.extend(block.into_iter().map(|text| Line {
+            text,
+            fenced: false,
+        }));
     }
     *lines = out;
 }
@@ -388,7 +433,9 @@ fn finish(lines: Vec<String>) -> String {
         if heading && out.last().is_some_and(|l| !l.is_empty()) {
             out.push(String::new());
         }
-        let after_heading = out.last().is_some_and(|l| l.starts_with("# ") || l.starts_with("##"));
+        let after_heading = out
+            .last()
+            .is_some_and(|l| l.starts_with("# ") || l.starts_with("##"));
         if after_heading && !heading {
             out.push(String::new());
         }
@@ -430,7 +477,9 @@ mod tests {
     fn removes_comments_markers_and_repeated_footers() {
         let mut src = String::from("<!-- hidden -->\nreal text here\n\n");
         for i in 1..=5 {
-            src.push_str(&format!("Page {i} of 9\n\nCONFIDENTIAL - do not share\n\nbody {i}\n\n"));
+            src.push_str(&format!(
+                "Page {i} of 9\n\nCONFIDENTIAL - do not share\n\nbody {i}\n\n"
+            ));
         }
         let (md, r) = clean(&src);
         assert!(!md.contains("CONFIDENTIAL") && !md.contains("Page 1") && !md.contains("hidden"));
@@ -443,10 +492,17 @@ mod tests {
     fn repeated_sentences_are_content_not_page_furniture() {
         let mut src = String::new();
         for i in 0..8 {
-            src.push_str(&format!("Always wrap every call in pcall before saving.\n\nSection {i} body text here.\n\n"));
+            src.push_str(&format!(
+                "Always wrap every call in pcall before saving.\n\nSection {i} body text here.\n\n"
+            ));
         }
         let (md, r) = clean(&src);
-        assert_eq!(md.matches("Always wrap every call in pcall before saving.").count(), 8, "{md}");
+        assert_eq!(
+            md.matches("Always wrap every call in pcall before saving.")
+                .count(),
+            8,
+            "{md}"
+        );
         assert!(r.boilerplate.is_empty());
     }
 

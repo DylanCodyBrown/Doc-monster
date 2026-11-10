@@ -4,16 +4,35 @@ use std::path::Path;
 use std::process::Command;
 
 fn run(args: &[&str]) -> (bool, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_doc-monster")).args(args).output().unwrap();
-    (out.status.success(), format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)))
+    let out = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        out.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )
 }
 
 fn long_markdown() -> String {
     let mut md = String::from("# Aurora Handbook\n\n");
     for (title, body) in [
-        ("Saving data", "Player data is saved to a DataStore every minute. Session locking prevents corruption of profiles. Always wrap DataStore calls in pcall because requests are throttled."),
-        ("Money", "Game passes unlock permanent perks for buyers. Developer products sell repeatable boosts to players. The economy needs coin sinks to avoid inflation of prices."),
-        ("Security", "Validate every RemoteEvent argument on the server always. Rate limit remote calls per player to stop exploit spam. Never trust the client for purchases or damage."),
+        (
+            "Saving data",
+            "Player data is saved to a DataStore every minute. Session locking prevents corruption of profiles. Always wrap DataStore calls in pcall because requests are throttled.",
+        ),
+        (
+            "Money",
+            "Game passes unlock permanent perks for buyers. Developer products sell repeatable boosts to players. The economy needs coin sinks to avoid inflation of prices.",
+        ),
+        (
+            "Security",
+            "Validate every RemoteEvent argument on the server always. Rate limit remote calls per player to stop exploit spam. Never trust the client for purchases or damage.",
+        ),
     ] {
         md.push_str(&format!("## {title}\n\n"));
         for _ in 0..8 {
@@ -26,7 +45,9 @@ fn long_markdown() -> String {
 
 /// Front matter must be exactly: a comment, a title and a description.
 fn front_matter(text: &str) -> Vec<&str> {
-    let rest = text.strip_prefix("---\n").expect("starts with front matter");
+    let rest = text
+        .strip_prefix("---\n")
+        .expect("starts with front matter");
     let end = rest.find("\n---\n").expect("front matter closes");
     rest[..end].lines().collect()
 }
@@ -35,7 +56,11 @@ fn front_matter(text: &str) -> Vec<&str> {
 fn front_matter_is_a_comment_a_title_and_a_description_nothing_else() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("handbook.md"), long_markdown()).unwrap();
-    std::fs::write(dir.path().join("settings.json"), r#"{"game":"Aurora","players":[{"id":1},{"id":2}]}"#).unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"game":"Aurora","players":[{"id":1},{"id":2}]}"#,
+    )
+    .unwrap();
     std::fs::write(dir.path().join("notes.txt"), "A short note about pets.\n").unwrap();
     let out = dir.path().join("out");
     let (ok, log) = run(&[dir.path().to_str().unwrap(), "-o", out.to_str().unwrap()]);
@@ -45,17 +70,29 @@ fn front_matter_is_a_comment_a_title_and_a_description_nothing_else() {
         let text = std::fs::read_to_string(out.join(name)).unwrap();
         let fm = front_matter(&text);
         assert_eq!(fm.len(), 3, "{name}: {fm:?}");
-        assert!(fm[0].starts_with("# ") && fm[0].ends_with("with Doc Monster"), "{name}: {fm:?}");
+        assert!(
+            fm[0].starts_with("# ") && fm[0].ends_with("with Doc Monster"),
+            "{name}: {fm:?}"
+        );
         assert!(fm[1].starts_with("title: \""), "{name}: {fm:?}");
         assert!(fm[2].starts_with("description: \""), "{name}: {fm:?}");
     }
     let handbook = std::fs::read_to_string(out.join("handbook.md")).unwrap();
-    assert!(handbook.contains("# Condensed with Doc Monster") && handbook.contains("title: \"Aurora Handbook\""));
+    assert!(
+        handbook.contains("# Condensed with Doc Monster")
+            && handbook.contains("title: \"Aurora Handbook\"")
+    );
     let notes = std::fs::read_to_string(out.join("notes.md")).unwrap();
     assert!(notes.contains("# Converted with Doc Monster"), "{notes}");
-    assert!(notes.contains("description: \"A short note about pets.\""), "{notes}");
+    assert!(
+        notes.contains("description: \"A short note about pets.\""),
+        "{notes}"
+    );
     let settings = std::fs::read_to_string(out.join("settings.md")).unwrap();
-    assert!(settings.contains("`game` is \"Aurora\".") && settings.contains("```json\n{"), "{settings}");
+    assert!(
+        settings.contains("`game` is \"Aurora\".") && settings.contains("```json\n{"),
+        "{settings}"
+    );
 }
 
 #[test]
@@ -63,7 +100,12 @@ fn condensed_flag_leaves_only_the_summary() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("handbook.md"), long_markdown()).unwrap();
     let out = dir.path().join("out");
-    let (ok, log) = run(&[dir.path().join("handbook.md").to_str().unwrap(), "-o", out.to_str().unwrap(), "--condensed"]);
+    let (ok, log) = run(&[
+        dir.path().join("handbook.md").to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--condensed",
+    ]);
     assert!(ok, "{log}");
     let text = std::fs::read_to_string(out.join("handbook.md")).unwrap();
     assert!(text.contains("## Summary") && !text.contains("## Full content"));
@@ -74,10 +116,24 @@ fn condensed_flag_leaves_only_the_summary() {
 fn legacy_binary_word_document_keeps_headings_lists_and_tables() {
     let out = tempfile::tempdir().unwrap();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sample.doc");
-    let (ok, log) = run(&[fixture.to_str().unwrap(), "-o", out.path().to_str().unwrap(), "--backend", "none"]);
+    let (ok, log) = run(&[
+        fixture.to_str().unwrap(),
+        "-o",
+        out.path().to_str().unwrap(),
+        "--backend",
+        "none",
+    ]);
     assert!(ok, "{log}");
     let text = std::fs::read_to_string(out.path().join("sample.md")).unwrap();
-    for needle in ["# Fixture Guide", "# Saving data", "## Checklist", "- Wrap calls in pcall\n- Version every save", "| Metric | Target |", "| Retention | 30 |", "# Money"] {
+    for needle in [
+        "# Fixture Guide",
+        "# Saving data",
+        "## Checklist",
+        "- Wrap calls in pcall\n- Version every save",
+        "| Metric | Target |",
+        "| Retention | 30 |",
+        "# Money",
+    ] {
         assert!(text.contains(needle), "missing {needle:?} in\n{text}");
     }
 }
@@ -105,5 +161,84 @@ fn every_new_text_and_data_format_converts() {
     let out = dir.path().join("out");
     let (ok, log) = run(&[dir.path().to_str().unwrap(), "-o", out.to_str().unwrap()]);
     assert!(ok, "{log}");
-    assert_eq!(std::fs::read_dir(&out).unwrap().count(), files.len(), "{log}");
+    assert_eq!(
+        std::fs::read_dir(&out).unwrap().count(),
+        files.len(),
+        "{log}"
+    );
+}
+
+#[test]
+fn output_goes_beside_the_source_and_conflicts_get_v2() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::write(d.join("notes.md"), long_markdown()).unwrap(); // the source itself is notes.md
+    std::fs::write(d.join("report.txt"), "A short report about pets.\n").unwrap();
+    std::fs::write(d.join("report.csv"), "a,b\n1,2\n").unwrap();
+    let (ok, log) = run(&[d.to_str().unwrap()]);
+    assert!(ok, "{log}");
+    // The original Markdown is never overwritten.
+    assert_eq!(
+        std::fs::read_to_string(d.join("notes.md")).unwrap(),
+        long_markdown()
+    );
+    assert!(d.join("notes.v2.md").exists(), "{log}");
+    // Two sources with the same name: the second gets .v2.
+    assert!(
+        d.join("report.md").exists() && d.join("report.v2.md").exists(),
+        "{log}"
+    );
+
+    // Running again does not eat its own outputs; it writes new versions of the real sources.
+    let (ok, log) = run(&[d.to_str().unwrap()]);
+    assert!(ok, "{log}");
+    assert!(log.contains("earlier outputs skipped"), "{log}");
+    assert!(d.join("notes.v3.md").exists(), "{log}");
+
+    // --overwrite replaces our own earlier output instead of adding versions.
+    let before = std::fs::read_dir(d).unwrap().count();
+    let (ok, log) = run(&[d.join("report.txt").to_str().unwrap(), "--overwrite"]);
+    assert!(ok, "{log}");
+    assert_eq!(std::fs::read_dir(d).unwrap().count(), before, "{log}");
+}
+
+#[test]
+fn json_report_is_valid_and_lists_failures_and_missing_inputs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("good.txt"), "A short note about pets.\n").unwrap();
+    std::fs::write(dir.path().join("bad.docx"), b"not a zip").unwrap();
+    let missing = dir.path().join("nope.pdf");
+    let out = Command::new(env!("CARGO_BIN_EXE_doc-monster"))
+        .args([
+            dir.path().to_str().unwrap(),
+            missing.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "some failed -> exit 1");
+    let report: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("stdout is pure JSON");
+    assert_eq!(report["converted"], 1);
+    assert_eq!(report["failed"], 2);
+    let errors: Vec<&str> = report["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["error"].as_str())
+        .collect();
+    assert!(errors.iter().any(|e| e.contains("not found")), "{errors:?}");
+    assert!(errors.iter().any(|e| e.contains("DOCX")), "{errors:?}");
+}
+
+#[test]
+fn no_animation_or_escape_codes_when_not_in_a_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "A short note about pets.\n").unwrap();
+    let (ok, log) = run(&[dir.path().to_str().unwrap()]);
+    assert!(ok);
+    assert!(
+        !log.contains('\x1b'),
+        "piped output must be plain text: {log:?}"
+    );
 }

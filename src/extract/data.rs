@@ -66,7 +66,9 @@ pub fn convert(kind: Kind, bytes: &[u8], _path: &Path, fallback: &str) -> Result
     match kind {
         Kind::Xml => {
             let root = xml_outline(&source, &mut lines);
-            description = root.map(|(name, n)| format!("XML file with root element <{name}> and {n} distinct element paths."));
+            description = root.map(|(name, n)| {
+                format!("XML file with root element <{name}> and {n} distinct element paths.")
+            });
         }
         _ => {
             let value = match kind {
@@ -85,19 +87,31 @@ pub fn convert(kind: Kind, bytes: &[u8], _path: &Path, fallback: &str) -> Result
                 Kind::Xml => unreachable!(),
             };
             description = describe_root(kind, &value);
-            let mut o = Outline { lines: &mut lines, truncated: false };
+            let mut o = Outline {
+                lines: &mut lines,
+                truncated: false,
+            };
             o.root(&value, kind == Kind::JsonLines);
             if o.truncated {
-                lines.push("- More fields exist than are described here; see the source below.".into());
+                lines.push(
+                    "- More fields exist than are described here; see the source below.".into(),
+                );
             }
         }
     }
 
-    let longest = shown_source.split(|c| c != '`').map(str::len).max().unwrap_or(0).max(2);
+    let longest = shown_source
+        .split(|c| c != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0)
+        .max(2);
     let fence = "`".repeat(longest + 1);
     // The description of the shape is the summary; the source is the full content.
     let md = format!("{fence}{}\n{shown_source}\n{fence}\n", kind.lang());
-    Ok(Out::new(fallback, md).with_summary(lines.join("\n")).with_description(description))
+    Ok(Out::new(fallback, md)
+        .with_summary(lines.join("\n"))
+        .with_description(description))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -151,7 +165,9 @@ fn parse_json(s: &str) -> Result<Value> {
     let s = s.trim_start_matches('\u{feff}');
     serde_json::from_str(s)
         .or_else(|_| serde_json::from_str(&strip_jsonc(s)))
-        .context("invalid JSON (comments and trailing commas are accepted, other JSON5 syntax is not)")
+        .context(
+            "invalid JSON (comments and trailing commas are accepted, other JSON5 syntax is not)",
+        )
 }
 
 fn parse_jsonl(s: &str) -> Result<Value> {
@@ -160,7 +176,10 @@ fn parse_jsonl(s: &str) -> Result<Value> {
         if line.trim().is_empty() {
             continue;
         }
-        items.push(serde_json::from_str(line).with_context(|| format!("invalid JSON on line {}", n + 1))?);
+        items.push(
+            serde_json::from_str(line)
+                .with_context(|| format!("invalid JSON on line {}", n + 1))?,
+        );
     }
     Ok(Value::Array(items))
 }
@@ -174,7 +193,11 @@ fn yaml_to_json(v: serde_norway::Value) -> Value {
             .as_i64()
             .map(Value::from)
             .or_else(|| n.as_u64().map(Value::from))
-            .or_else(|| n.as_f64().and_then(serde_json::Number::from_f64).map(Value::Number))
+            .or_else(|| {
+                n.as_f64()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(Value::Number)
+            })
             .unwrap_or(Value::Null),
         Y::String(s) => Value::String(s),
         Y::Sequence(s) => Value::Array(s.into_iter().map(yaml_to_json).collect()),
@@ -218,7 +241,9 @@ fn toml_to_json(v: toml::Value) -> Value {
         toml::Value::Boolean(b) => Value::Bool(b),
         toml::Value::Datetime(d) => Value::String(d.to_string()),
         toml::Value::Array(a) => Value::Array(a.into_iter().map(toml_to_json).collect()),
-        toml::Value::Table(t) => Value::Object(t.into_iter().map(|(k, v)| (k, toml_to_json(v))).collect()),
+        toml::Value::Table(t) => {
+            Value::Object(t.into_iter().map(|(k, v)| (k, toml_to_json(v))).collect())
+        }
     }
 }
 
@@ -253,10 +278,13 @@ fn parse_ini(s: &str) -> Value {
         }
         if let Some(name) = t.strip_prefix('[').and_then(|x| x.strip_suffix(']')) {
             section = Some(name.trim().to_string());
-            root.entry(name.trim().to_string()).or_insert_with(|| Value::Object(Map::new()));
+            root.entry(name.trim().to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
             continue;
         }
-        let Some(split) = t.find(['=', ':']) else { continue };
+        let Some(split) = t.find(['=', ':']) else {
+            continue;
+        };
         let (k, v) = (t[..split].trim().to_string(), scalar(&t[split + 1..]));
         match &section {
             Some(sec) => {
@@ -305,21 +333,42 @@ impl Outline<'_> {
         match v {
             Value::Object(m) => {
                 let keys = key_list(m.keys().map(String::as_str));
-                self.push(0, format!("The document is an object with {} {}: {keys}.", m.len(), plural(m.len(), "key")));
+                self.push(
+                    0,
+                    format!(
+                        "The document is an object with {} {}: {keys}.",
+                        m.len(),
+                        plural(m.len(), "key")
+                    ),
+                );
                 for (k, child) in m.iter().take(MAX_KEYS_SHOWN) {
-                    self.walk(&format!("{k}"), &[child], 1);
+                    self.walk(&k.to_string(), &[child], 1);
                 }
             }
             Value::Array(items) => {
-                let what = if is_jsonl { "The file has" } else { "The document is a list of" };
-                self.push(0, format!("{what} {} {}.", group(&items.len().to_string()), if is_jsonl { "records" } else { "items" }));
+                let what = if is_jsonl {
+                    "The file has"
+                } else {
+                    "The document is a list of"
+                };
+                self.push(
+                    0,
+                    format!(
+                        "{what} {} {}.",
+                        group(&items.len().to_string()),
+                        if is_jsonl { "records" } else { "items" }
+                    ),
+                );
                 let refs: Vec<&Value> = items.iter().collect();
                 if !refs.is_empty() {
                     self.walk("[]", &refs, 1);
                 }
             }
             other => {
-                self.push(0, format!("The document is a single value of {}.", kind_name(other)));
+                self.push(
+                    0,
+                    format!("The document is a single value of {}.", kind_name(other)),
+                );
             }
         }
     }
@@ -330,18 +379,34 @@ impl Outline<'_> {
         }
         let objs: Vec<&Map<String, Value>> = vals.iter().filter_map(|v| v.as_object()).collect();
         let arrs: Vec<&Vec<Value>> = vals.iter().filter_map(|v| v.as_array()).collect();
-        let scalars: Vec<&Value> = vals.iter().copied().filter(|v| !v.is_object() && !v.is_array()).collect();
-        let kinds = usize::from(!objs.is_empty()) + usize::from(!arrs.is_empty()) + usize::from(!scalars.is_empty());
-        let seen = if vals.len() > 1 { format!(" (seen {} times)", group(&vals.len().to_string())) } else { String::new() };
+        let scalars: Vec<&Value> = vals
+            .iter()
+            .copied()
+            .filter(|v| !v.is_object() && !v.is_array())
+            .collect();
+        let kinds = usize::from(!objs.is_empty())
+            + usize::from(!arrs.is_empty())
+            + usize::from(!scalars.is_empty());
+        let seen = if vals.len() > 1 {
+            format!(" (seen {} times)", group(&vals.len().to_string()))
+        } else {
+            String::new()
+        };
 
-        if kinds > 1 {
-            if !self.push(depth, format!("`{path}` holds a mix of objects, lists and plain values{seen}.")) {
-                return;
-            }
+        if kinds > 1
+            && !self.push(
+                depth,
+                format!("`{path}` holds a mix of objects, lists and plain values{seen}."),
+            )
+        {
+            return;
         }
         if scalars.len() == 1 && kinds == 1 {
             let text = match scalars[0] {
-                Value::String(s) => format!("\"{}\"", s.replace('"', "'").chars().take(120).collect::<String>()),
+                Value::String(s) => format!(
+                    "\"{}\"",
+                    s.replace('"', "'").chars().take(120).collect::<String>()
+                ),
                 Value::Number(n) => n.to_string(),
                 Value::Bool(b) => b.to_string(),
                 _ => "empty".to_string(),
@@ -358,7 +423,11 @@ impl Outline<'_> {
                     _ => {}
                 }
             }
-            let mut line = if col.filled == 0 { format!("Field \"{path}\" is always empty or null.") } else { col.describe(scalars.len()) };
+            let mut line = if col.filled == 0 {
+                format!("Field \"{path}\" is always empty or null.")
+            } else {
+                col.describe(scalars.len())
+            };
             if nulls > 0 && col.filled > 0 {
                 line.push_str(&format!(" {} are null.", group(&nulls.to_string())));
             }
@@ -375,22 +444,41 @@ impl Outline<'_> {
             }
             let shown = key_list(keys.iter().copied());
             let line = if path.ends_with("[]") || depth <= 1 && path == "[]" {
-                format!("Each item in `{path}` is an object with {} {}: {shown}.{seen}", keys.len(), plural(keys.len(), "key"))
+                format!(
+                    "Each item in `{path}` is an object with {} {}: {shown}.{seen}",
+                    keys.len(),
+                    plural(keys.len(), "key")
+                )
             } else {
-                format!("`{path}` is an object with {} {}: {shown}.{seen}", keys.len(), plural(keys.len(), "key"))
+                format!(
+                    "`{path}` is an object with {} {}: {shown}.{seen}",
+                    keys.len(),
+                    plural(keys.len(), "key")
+                )
             };
             if !self.push(depth, line) {
                 return;
             }
             for k in keys.iter().take(MAX_KEYS_SHOWN) {
                 let children: Vec<&Value> = objs.iter().filter_map(|m| m.get(*k)).collect();
-                self.walk(&format!("{path}.{k}").trim_start_matches('.').to_string(), &children, depth + 1);
+                self.walk(
+                    format!("{path}.{k}").trim_start_matches('.'),
+                    &children,
+                    depth + 1,
+                );
             }
         }
         if !arrs.is_empty() {
-            let (min, max) = (arrs.iter().map(|a| a.len()).min().unwrap_or(0), arrs.iter().map(|a| a.len()).max().unwrap_or(0));
+            let (min, max) = (
+                arrs.iter().map(|a| a.len()).min().unwrap_or(0),
+                arrs.iter().map(|a| a.len()).max().unwrap_or(0),
+            );
             let total: usize = arrs.iter().map(|a| a.len()).sum();
-            let size = if min == max { format!("{}", group(&min.to_string())) } else { format!("{} to {}", group(&min.to_string()), group(&max.to_string())) };
+            let size = if min == max {
+                group(&min.to_string()).to_string()
+            } else {
+                format!("{} to {}", group(&min.to_string()), group(&max.to_string()))
+            };
             let line = if arrs.len() == 1 {
                 format!("`{path}` is a list of {size} items.")
             } else {
@@ -408,7 +496,11 @@ impl Outline<'_> {
 }
 
 fn plural(n: usize, word: &str) -> String {
-    if n == 1 { word.to_string() } else { format!("{word}s") }
+    if n == 1 {
+        word.to_string()
+    } else {
+        format!("{word}s")
+    }
 }
 
 /// A one-line description of a parsed data file for the front matter.
@@ -416,21 +508,34 @@ fn describe_root(kind: Kind, v: &Value) -> Option<String> {
     match v {
         Value::Object(m) => {
             for key in ["description", "summary", "about"] {
-                if let Some(Value::String(s)) = m.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v) {
-                    if !s.trim().is_empty() {
-                        return Some(s.clone());
-                    }
+                if let Some(Value::String(s)) = m
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                    .map(|(_, v)| v)
+                    && !s.trim().is_empty()
+                {
+                    return Some(s.clone());
                 }
             }
             let keys: Vec<&str> = m.keys().map(String::as_str).take(6).collect();
             let more = if m.len() > 6 { ", …" } else { "" };
-            Some(format!("{} file with {} top-level {}: {}{more}.", kind.title(), m.len(), plural(m.len(), "key"), keys.join(", ")))
+            Some(format!(
+                "{} file with {} top-level {}: {}{more}.",
+                kind.title(),
+                m.len(),
+                plural(m.len(), "key"),
+                keys.join(", ")
+            ))
         }
         Value::Array(a) => Some(format!(
             "{} file holding a list of {} {}.",
             kind.title(),
             group(&a.len().to_string()),
-            if kind == Kind::JsonLines { "records" } else { "items" }
+            if kind == Kind::JsonLines {
+                "records"
+            } else {
+                "items"
+            }
         )),
         _ => None,
     }
@@ -438,9 +543,17 @@ fn describe_root(kind: Kind, v: &Value) -> Option<String> {
 
 fn key_list<'a>(keys: impl Iterator<Item = &'a str>) -> String {
     let all: Vec<&str> = keys.collect();
-    let shown: Vec<String> = all.iter().take(MAX_KEYS_SHOWN).map(|k| format!("`{k}`")).collect();
+    let shown: Vec<String> = all
+        .iter()
+        .take(MAX_KEYS_SHOWN)
+        .map(|k| format!("`{k}`"))
+        .collect();
     let more = all.len().saturating_sub(MAX_KEYS_SHOWN);
-    if more > 0 { format!("{}, … (+{more} more)", shown.join(", ")) } else { shown.join(", ") }
+    if more > 0 {
+        format!("{}, … (+{more} more)", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -466,7 +579,13 @@ fn register(
     let path = format!("{}/{name}", parent.map_or("", String::as_str));
     root.get_or_insert_with(|| name.clone());
     let i = *index.entry(path.clone()).or_insert_with(|| {
-        elems.push(Elem { path: path.clone(), count: 0, attrs: Vec::new(), children: Vec::new(), text: Column::new(path.clone(), "Element") });
+        elems.push(Elem {
+            path: path.clone(),
+            count: 0,
+            attrs: Vec::new(),
+            children: Vec::new(),
+            text: Column::new(path.clone(), "Element"),
+        });
         elems.len() - 1
     });
     elems[i].count += 1;
@@ -476,12 +595,11 @@ fn register(
             elems[i].attrs.push(k);
         }
     }
-    if let Some(p) = parent {
-        if let Some(&pi) = index.get(p) {
-            if !elems[pi].children.contains(&name) {
-                elems[pi].children.push(name);
-            }
-        }
+    if let Some(p) = parent
+        && let Some(&pi) = index.get(p)
+        && !elems[pi].children.contains(&name)
+    {
+        elems[pi].children.push(name);
     }
     path
 }
@@ -511,10 +629,10 @@ fn xml_outline(source: &str, lines: &mut Vec<String>) -> Option<(String, usize)>
                 register(&e, open.last(), &mut elems, &mut index, &mut root);
             }
             Ok(Event::Text(t)) => {
-                if let Some(path) = open.last() {
-                    if let Some(&i) = index.get(path) {
-                        elems[i].text.add_raw(&t);
-                    }
+                if let Some(path) = open.last()
+                    && let Some(&i) = index.get(path)
+                {
+                    elems[i].text.add_raw(&t);
                 }
             }
             Ok(Event::End(_)) => {
@@ -526,20 +644,44 @@ fn xml_outline(source: &str, lines: &mut Vec<String>) -> Option<(String, usize)>
     }
 
     if let Some(r) = &root {
-        lines.push(format!("- The root element is `<{r}>`; {} distinct element paths were found.", group(&elems.len().to_string())));
+        lines.push(format!(
+            "- The root element is `<{r}>`; {} distinct element paths were found.",
+            group(&elems.len().to_string())
+        ));
     }
-    for e in elems.iter().filter(|e| e.path.matches('/').count() <= MAX_DEPTH) {
+    for e in elems
+        .iter()
+        .filter(|e| e.path.matches('/').count() <= MAX_DEPTH)
+    {
         if lines.len() >= MAX_LINES {
-            lines.push("- More elements exist than are described here; see the source below.".into());
+            lines.push(
+                "- More elements exist than are described here; see the source below.".into(),
+            );
             break;
         }
         let depth = e.path.matches('/').count().saturating_sub(1);
-        let mut s = format!("`{}` appears {} time{}", e.path, group(&e.count.to_string()), if e.count == 1 { "" } else { "s" });
+        let mut s = format!(
+            "`{}` appears {} time{}",
+            e.path,
+            group(&e.count.to_string()),
+            if e.count == 1 { "" } else { "s" }
+        );
         if !e.attrs.is_empty() {
-            s.push_str(&format!("; attributes: {}", e.attrs.iter().take(8).map(|a| format!("`{a}`")).collect::<Vec<_>>().join(", ")));
+            s.push_str(&format!(
+                "; attributes: {}",
+                e.attrs
+                    .iter()
+                    .take(8)
+                    .map(|a| format!("`{a}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         if !e.children.is_empty() {
-            s.push_str(&format!("; contains: {}", key_list(e.children.iter().map(String::as_str))));
+            s.push_str(&format!(
+                "; contains: {}",
+                key_list(e.children.iter().map(String::as_str))
+            ));
         }
         s.push('.');
         if e.text.filled > 0 {
@@ -566,8 +708,14 @@ mod tests {
 
     #[test]
     fn json_shape_is_described_in_words() {
-        let m = md(Kind::Json, r#"{"game":"Aurora","players":[{"id":1,"coins":50,"vip":true},{"id":2,"coins":150,"vip":false}]}"#);
-        assert!(m.contains("The document is an object with 2 keys: `game`, `players`."), "{m}");
+        let m = md(
+            Kind::Json,
+            r#"{"game":"Aurora","players":[{"id":1,"coins":50,"vip":true},{"id":2,"coins":150,"vip":false}]}"#,
+        );
+        assert!(
+            m.contains("The document is an object with 2 keys: `game`, `players`."),
+            "{m}"
+        );
         assert!(m.contains("`game` is \"Aurora\"."), "{m}");
         assert!(m.contains("`players` is a list of 2 items."));
         assert!(m.contains("Each item in `players[]` is an object with 3 keys"));
@@ -585,31 +733,61 @@ mod tests {
     #[test]
     fn jsonl_yaml_toml_ini_parse() {
         assert!(md(Kind::JsonLines, "{\"a\":1}\n{\"a\":2}\n").contains("The file has 2 records."));
-        let y = md(Kind::Yaml, "name: demo\nports: [80, 443]\nnested:\n  1: one\n---\nsecond: doc\n");
+        let y = md(
+            Kind::Yaml,
+            "name: demo\nports: [80, 443]\nnested:\n  1: one\n---\nsecond: doc\n",
+        );
         assert!(y.contains("The document is a list of 2 items."), "{y}");
-        let t = md(Kind::Toml, "title = \"x\"\n[server]\nport = 8080\nwhen = 1979-05-27T07:32:00Z\n");
+        let t = md(
+            Kind::Toml,
+            "title = \"x\"\n[server]\nport = 8080\nwhen = 1979-05-27T07:32:00Z\n",
+        );
         assert!(t.contains("`server` is an object with 2 keys"), "{t}");
-        let i = md(Kind::Ini, "# c\nkey=1\n[db]\nhost = localhost\nssl = true\n");
-        assert!(i.contains("`db` is an object with 2 keys: `host`, `ssl`."), "{i}");
+        let i = md(
+            Kind::Ini,
+            "# c\nkey=1\n[db]\nhost = localhost\nssl = true\n",
+        );
+        assert!(
+            i.contains("`db` is an object with 2 keys: `host`, `ssl`."),
+            "{i}"
+        );
         assert!(i.contains("`db.ssl` is true."), "{i}");
     }
 
     #[test]
     fn xml_elements_and_attributes_are_listed() {
-        let m = md(Kind::Xml, "<root><item id=\"1\">5</item><item id=\"2\">7</item><empty/></root>");
+        let m = md(
+            Kind::Xml,
+            "<root><item id=\"1\">5</item><item id=\"2\">7</item><empty/></root>",
+        );
         assert!(m.contains("The root element is `<root>`"), "{m}");
-        assert!(m.contains("`/root/item` appears 2 times; attributes: `id`"), "{m}");
+        assert!(
+            m.contains("`/root/item` appears 2 times; attributes: `id`"),
+            "{m}"
+        );
         assert!(m.contains("`/root/empty` appears 1 time"));
     }
 
     #[test]
     fn description_prefers_the_files_own_and_falls_back_to_its_shape() {
-        let own = convert(Kind::Json, br#"{"description":"Game settings for Aurora","a":1}"#, Path::new("x"), "x").unwrap();
+        let own = convert(
+            Kind::Json,
+            br#"{"description":"Game settings for Aurora","a":1}"#,
+            Path::new("x"),
+            "x",
+        )
+        .unwrap();
         assert_eq!(own.description.as_deref(), Some("Game settings for Aurora"));
         let shape = convert(Kind::Yaml, b"a: 1\nb: 2\n", Path::new("x"), "x").unwrap();
-        assert_eq!(shape.description.as_deref(), Some("YAML file with 2 top-level keys: a, b."));
+        assert_eq!(
+            shape.description.as_deref(),
+            Some("YAML file with 2 top-level keys: a, b.")
+        );
         let xml = convert(Kind::Xml, b"<r><x/><x/></r>", Path::new("x"), "x").unwrap();
-        assert_eq!(xml.description.as_deref(), Some("XML file with root element <r> and 2 distinct element paths."));
+        assert_eq!(
+            xml.description.as_deref(),
+            Some("XML file with root element <r> and 2 distinct element paths.")
+        );
     }
 
     #[test]

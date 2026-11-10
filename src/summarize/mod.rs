@@ -5,7 +5,7 @@ pub use ollama::Ollama;
 use crate::chunk::chunk_markdown;
 use anyhow::Result;
 
-pub trait Summarizer {
+pub trait Summarizer: Send + Sync {
     /// Short name recorded in the output so readers know how the summary was made.
     fn name(&self) -> String;
     fn summarize(&self, text: &str) -> Result<String>;
@@ -54,7 +54,10 @@ mod tests {
 
     #[test]
     fn reduces_long_documents_to_one_summary() {
-        let doc = (0..50).map(|i| format!("paragraph number {i}")).collect::<Vec<_>>().join("\n\n");
+        let doc = (0..50)
+            .map(|i| format!("paragraph number {i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let out = summarize_document(&Shout, &doc, 60).unwrap();
         assert!(!out.is_empty() && out.len() <= 5);
     }

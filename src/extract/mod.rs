@@ -65,6 +65,19 @@ impl Format {
     }
 }
 
+/// Reading limits.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Most rows read per spreadsheet sheet or CSV file.
+    pub max_rows: usize,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options { max_rows: 5000 }
+    }
+}
+
 /// What a converter produces.
 pub struct Out {
     pub title: String,
@@ -73,11 +86,23 @@ pub struct Out {
     pub description: Option<String>,
     /// A summary the reader produced itself (e.g. the shape of a data file); replaces the digest.
     pub summary: Option<String>,
+    /// Things in the source that are not in the output ("3 images", "page headers and footers").
+    pub omitted: Vec<String>,
 }
 
 impl Out {
     pub fn new(title: impl Into<String>, markdown: impl Into<String>) -> Out {
-        Out { title: title.into(), markdown: markdown.into(), description: None, summary: None }
+        Out {
+            title: title.into(),
+            markdown: markdown.into(),
+            description: None,
+            summary: None,
+            omitted: Vec::new(),
+        }
+    }
+    pub fn omitting(mut self, what: impl Into<String>) -> Out {
+        self.omitted.push(what.into());
+        self
     }
     pub fn with_summary(mut self, s: String) -> Out {
         self.summary = Some(s);
@@ -96,16 +121,116 @@ impl From<(String, String)> for Out {
 }
 
 const CODE: &[&str] = &[
-    "rs", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx", "lua", "luau", "c", "h", "cc", "cpp", "cxx", "hpp",
-    "cs", "java", "kt", "kts", "go", "rb", "php", "swift", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "sql",
-    "css", "scss", "sass", "less", "vue", "svelte", "dart", "r", "pl", "pm", "scala", "clj", "ex", "exs", "erl",
-    "hs", "ml", "fs", "zig", "nim", "gradle", "cmake", "mk", "proto", "graphql", "gql", "glsl", "hlsl", "wgsl",
-    "asm", "s", "vb", "vbs", "m", "mm", "tf", "hcl", "log", "out", "err", "diff", "patch", "gitignore", "lock",
+    "rs",
+    "py",
+    "pyw",
+    "js",
+    "mjs",
+    "cjs",
+    "ts",
+    "tsx",
+    "jsx",
+    "lua",
+    "luau",
+    "c",
+    "h",
+    "cc",
+    "cpp",
+    "cxx",
+    "hpp",
+    "cs",
+    "java",
+    "kt",
+    "kts",
+    "go",
+    "rb",
+    "php",
+    "swift",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "ps1",
+    "bat",
+    "cmd",
+    "sql",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "vue",
+    "svelte",
+    "dart",
+    "r",
+    "pl",
+    "pm",
+    "scala",
+    "clj",
+    "ex",
+    "exs",
+    "erl",
+    "hs",
+    "ml",
+    "fs",
+    "zig",
+    "nim",
+    "gradle",
+    "cmake",
+    "mk",
+    "proto",
+    "graphql",
+    "gql",
+    "glsl",
+    "hlsl",
+    "wgsl",
+    "asm",
+    "s",
+    "vb",
+    "vbs",
+    "m",
+    "mm",
+    "tf",
+    "hcl",
+    "log",
+    "out",
+    "err",
+    "diff",
+    "patch",
+    "gitignore",
+    "lock",
 ];
-const PLAIN: &[&str] = &["txt", "text", "nfo", "diz", "me", "1st", "asc", "readme", "wiki", "mediawiki", "textile", "creole"];
+const PLAIN: &[&str] = &[
+    "txt",
+    "text",
+    "nfo",
+    "diz",
+    "me",
+    "1st",
+    "asc",
+    "readme",
+    "wiki",
+    "mediawiki",
+    "textile",
+    "creole",
+];
 const PLAIN_NAMES: &[&str] = &[
-    "readme", "license", "licence", "changelog", "changes", "authors", "contributors", "notice", "todo", "copying",
-    "install", "news", "notes", "history", "credits", "thanks", "version",
+    "readme",
+    "license",
+    "licence",
+    "changelog",
+    "changes",
+    "authors",
+    "contributors",
+    "notice",
+    "todo",
+    "copying",
+    "install",
+    "news",
+    "notes",
+    "history",
+    "credits",
+    "thanks",
+    "version",
 ];
 
 /// Decide the format from the extension, falling back to content sniffing.
@@ -130,21 +255,26 @@ pub fn detect(path: &Path, head: &[u8]) -> Result<Format> {
         "tex" | "latex" | "ltx" => Some(Format::Markup(M::Tex)),
         "html" | "htm" | "xhtml" | "mhtml" => Some(Format::Html),
         "csv" | "tsv" | "psv" => Some(Format::Csv),
-        "json" | "jsonc" | "json5" | "geojson" | "webmanifest" | "har" | "mcmeta" => Some(Format::Data(D::Json)),
+        "json" | "jsonc" | "json5" | "geojson" | "webmanifest" | "har" | "mcmeta" => {
+            Some(Format::Data(D::Json))
+        }
         "jsonl" | "ndjson" => Some(Format::Data(D::JsonLines)),
         "yaml" | "yml" => Some(Format::Data(D::Yaml)),
         "toml" => Some(Format::Data(D::Toml)),
-        "xml" | "xsd" | "xsl" | "xslt" | "rss" | "atom" | "svg" | "plist" | "kml" | "gpx" | "rdf" | "opml" | "rbxlx"
-        | "rbxmx" | "csproj" | "resx" | "xaml" => Some(Format::Data(D::Xml)),
-        "ini" | "cfg" | "conf" | "properties" | "env" | "editorconfig" | "gitconfig" | "desktop" => Some(Format::Data(D::Ini)),
+        "xml" | "xsd" | "xsl" | "xslt" | "rss" | "atom" | "svg" | "plist" | "kml" | "gpx"
+        | "rdf" | "opml" | "rbxlx" | "rbxmx" | "csproj" | "resx" | "xaml" => {
+            Some(Format::Data(D::Xml))
+        }
+        "ini" | "cfg" | "conf" | "properties" | "env" | "editorconfig" | "gitconfig"
+        | "desktop" => Some(Format::Data(D::Ini)),
         "docx" | "docm" | "dotx" | "dotm" => Some(Format::Docx),
         "odt" | "ott" | "odp" | "otp" | "fodt" | "fodp" => Some(Format::Odf),
         "rtf" => Some(Format::Rtf),
         "doc" | "dot" => Some(Format::LegacyDoc),
         "pdf" => Some(Format::Pdf),
         "xlsx" | "xlsm" | "xls" | "xlsb" | "ods" | "xltx" => Some(Format::Xlsx),
-        "mp4" | "m4v" | "mov" | "mkv" | "webm" | "avi" | "wmv" | "flv" | "mpg" | "mpeg" | "ogv" | "3gp" | "m2ts"
-        | "mts" | "vob" | "qt" => Some(Format::Video),
+        "mp4" | "m4v" | "mov" | "mkv" | "webm" | "avi" | "wmv" | "flv" | "mpg" | "mpeg" | "ogv"
+        | "3gp" | "m2ts" | "mts" | "vob" | "qt" => Some(Format::Video),
         "srt" | "vtt" => Some(Format::Subtitles),
         e if PLAIN.contains(&e) => Some(Format::PlainText),
         e if CODE.contains(&e) => Some(Format::Code),
@@ -153,7 +283,8 @@ pub fn detect(path: &Path, head: &[u8]) -> Result<Format> {
     if let Some(f) = by_ext {
         return Ok(f);
     }
-    if matches!(name.as_str(), ".env" | ".gitconfig" | ".editorconfig") || name.starts_with(".env.") {
+    if matches!(name.as_str(), ".env" | ".gitconfig" | ".editorconfig") || name.starts_with(".env.")
+    {
         return Ok(Format::Data(D::Ini));
     }
     if ext.is_empty() && PLAIN_NAMES.contains(&name.as_str()) {
@@ -191,8 +322,13 @@ fn read_head(path: &Path) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Read a file and convert it to full-fidelity Markdown.
+/// Read a file and convert it to full-fidelity Markdown, with default limits.
 pub fn extract(path: &Path) -> Result<Document> {
+    extract_with(path, &Options::default())
+}
+
+/// Read a file and convert it to full-fidelity Markdown.
+pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
     let head = read_head(path)?;
     let format = detect(path, &head)?;
     let fallback = path
@@ -206,6 +342,9 @@ pub fn extract(path: &Path) -> Result<Document> {
     // Videos can be gigabytes: never read them whole.
     let out: Out = if format == Format::Video {
         video::convert(path, &fallback)?
+    } else if format == Format::Csv {
+        // Streamed, so only the rows that are kept are ever read.
+        csv_table::convert(path, &fallback, opts.max_rows)?
     } else {
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
         match format {
@@ -214,16 +353,15 @@ pub fn extract(path: &Path) -> Result<Document> {
             Format::Code => text::convert_code(&bytes, path, &fallback)?.into(),
             Format::Markup(k) => markup::convert(k, &bytes, &fallback)?.into(),
             Format::Html => html::convert(&bytes, &fallback)?.into(),
-            Format::Csv => csv_table::convert(&bytes, path, &fallback)?.into(),
             Format::Data(k) => data::convert(k, &bytes, path, &fallback)?,
             Format::Docx => docx::convert(&bytes, &fallback)?,
             Format::Odf => odf::convert(&bytes, &fallback)?,
-            Format::Rtf => rtf::convert(&bytes, &fallback)?.into(),
-            Format::LegacyDoc => doc::convert(&bytes, &fallback)?.into(),
+            Format::Rtf => rtf::convert(&bytes, &fallback)?,
+            Format::LegacyDoc => doc::convert(&bytes, &fallback)?,
             Format::Pdf => pdf::convert(&bytes, &fallback)?.into(),
-            Format::Xlsx => xlsx::convert(&bytes, &fallback)?.into(),
+            Format::Xlsx => xlsx::convert(&bytes, &fallback, opts.max_rows)?,
             Format::Subtitles => subtitles::convert(&bytes, &fallback)?.into(),
-            Format::Video => unreachable!(),
+            Format::Video | Format::Csv => unreachable!(),
         }
     };
 
@@ -231,6 +369,7 @@ pub fn extract(path: &Path) -> Result<Document> {
         title: out.title,
         description: out.description,
         summary: out.summary,
+        omitted: out.omitted,
         source: path.to_path_buf(),
         format,
         markdown: out.markdown,

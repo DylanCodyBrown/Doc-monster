@@ -9,23 +9,30 @@ use anyhow::{Context, Result, bail};
 use std::io::{Cursor, Read};
 
 fn u16_at(b: &[u8], o: usize) -> Result<u16> {
-    b.get(o..o + 2).map(|s| u16::from_le_bytes([s[0], s[1]])).context("truncated Word file")
+    b.get(o..o + 2)
+        .map(|s| u16::from_le_bytes([s[0], s[1]]))
+        .context("truncated Word file")
 }
 fn u32_at(b: &[u8], o: usize) -> Result<u32> {
-    b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]])).context("truncated Word file")
+    b.get(o..o + 4)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        .context("truncated Word file")
 }
 
 fn stream(cf: &mut cfb::CompoundFile<Cursor<&[u8]>>, name: &str) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
-    cf.open_stream(name).with_context(|| format!("missing stream {name}"))?.read_to_end(&mut buf)?;
+    cf.open_stream(name)
+        .with_context(|| format!("missing stream {name}"))?
+        .read_to_end(&mut buf)?;
     Ok(buf)
 }
 
-pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
+pub fn convert(bytes: &[u8], fallback: &str) -> Result<super::Out> {
     let mut cf = cfb::CompoundFile::open(Cursor::new(bytes)).context("not a Word binary file")?;
     let word = stream(&mut cf, "/WordDocument")?;
-    if u16_at(&word, 0)? != 0xA5EC {
-        bail!("not a Word document");
+    // 0xA5EC: Word 97 and later. 0xA5DC: Word 6 and Word 95.
+    if !matches!(u16_at(&word, 0)?, 0xA5EC | 0xA5DC) {
+        bail!("not a Word document (it may be Word 2 or older, which is not supported)");
     }
     let flags = u16_at(&word, 0x0A)?;
     if flags & 0x0100 != 0 {
@@ -35,17 +42,52 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
 
     let mut pieces: Vec<Piece> = Vec::new();
     let mut runs: Vec<(usize, usize, ParaInfo)> = Vec::new();
+    // Lengths of the text stories after the main text: footnotes, headers, macros, comments, endnotes, text boxes.
+    let mut stories = [0usize; 6];
+    let mut ccp_main = usize::MAX;
     let raw: Vec<char> = if nfib < 0x00C1 {
         // Word 6 / 95: text is one contiguous run of Windows-1252 bytes.
         let (min, mac) = (u32_at(&word, 0x18)? as usize, u32_at(&word, 0x1C)? as usize);
-        let run = word.get(min..mac.min(word.len())).context("bad text range")?;
-        pieces.push(Piece { cp0: 0, off: min, wide: false });
-        run.iter().map(|&b| encoding_rs::WINDOWS_1252.decode_without_bom_handling(&[b]).0.chars().next().unwrap_or(' ')).collect()
+        let run = word
+            .get(min..mac.min(word.len()))
+            .context("bad text range")?;
+        pieces.push(Piece {
+            cp0: 0,
+            off: min,
+            wide: false,
+        });
+        run.iter()
+            .map(|&b| {
+                encoding_rs::WINDOWS_1252
+                    .decode_without_bom_handling(&[b])
+                    .0
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
+            .collect()
     } else {
-        let table = stream(&mut cf, if flags & 0x0200 != 0 { "/1Table" } else { "/0Table" })?;
+        let table = stream(
+            &mut cf,
+            if flags & 0x0200 != 0 {
+                "/1Table"
+            } else {
+                "/0Table"
+            },
+        )?;
         let ccp_text = u32_at(&word, 0x4C)? as usize;
-        let (fc_clx, lcb_clx) = (u32_at(&word, 0x1A2)? as usize, u32_at(&word, 0x1A6)? as usize);
-        let clx = table.get(fc_clx..fc_clx + lcb_clx).context("bad piece table location")?;
+        for (i, off) in [0x50, 0x54, 0x58, 0x5C, 0x60, 0x64].iter().enumerate() {
+            stories[i] = u32_at(&word, *off).unwrap_or(0) as usize;
+        }
+        let ccp_all = ccp_text + stories.iter().sum::<usize>();
+        ccp_main = ccp_text;
+        let (fc_clx, lcb_clx) = (
+            u32_at(&word, 0x1A2)? as usize,
+            u32_at(&word, 0x1A6)? as usize,
+        );
+        let clx = table
+            .get(fc_clx..fc_clx + lcb_clx)
+            .context("bad piece table location")?;
         let mut pos = 0;
         let plc = loop {
             match clx.get(pos) {
@@ -60,23 +102,45 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
         let n = (plc.len().saturating_sub(4)) / 12;
         let mut chars: Vec<char> = Vec::new();
         for k in 0..n {
-            let (cp0, cp1) = (u32_at(plc, 4 * k)? as usize, u32_at(plc, 4 * (k + 1))? as usize);
-            if cp0 >= ccp_text {
+            let (cp0, cp1) = (
+                u32_at(plc, 4 * k)? as usize,
+                u32_at(plc, 4 * (k + 1))? as usize,
+            );
+            if cp0 >= ccp_all {
                 break;
             }
-            let len = cp1.saturating_sub(cp0).min(ccp_text - cp0);
+            let len = cp1.saturating_sub(cp0).min(ccp_all - cp0);
             let fc = u32_at(plc, 4 * (n + 1) + 8 * k + 2)?;
             if fc & 0x4000_0000 != 0 {
                 let off = ((fc & 0x3FFF_FFFF) / 2) as usize;
                 let run = word.get(off..off + len).context("piece outside document")?;
-                pieces.push(Piece { cp0, off, wide: false });
-                chars.extend(run.iter().map(|&b| encoding_rs::WINDOWS_1252.decode_without_bom_handling(&[b]).0.chars().next().unwrap_or(' ')));
+                pieces.push(Piece {
+                    cp0,
+                    off,
+                    wide: false,
+                });
+                chars.extend(run.iter().map(|&b| {
+                    encoding_rs::WINDOWS_1252
+                        .decode_without_bom_handling(&[b])
+                        .0
+                        .chars()
+                        .next()
+                        .unwrap_or(' ')
+                }));
             } else {
                 let off = fc as usize;
-                let run = word.get(off..off + 2 * len).context("piece outside document")?;
-                pieces.push(Piece { cp0, off, wide: true });
+                let run = word
+                    .get(off..off + 2 * len)
+                    .context("piece outside document")?;
+                pieces.push(Piece {
+                    cp0,
+                    off,
+                    wide: true,
+                });
                 // One character per 16-bit unit keeps character positions aligned with the file.
-                chars.extend(run.chunks_exact(2).map(|u| char::from_u32(u16::from_le_bytes([u[0], u[1]]) as u32).unwrap_or('\u{fffd}')));
+                chars.extend(run.chunks_exact(2).map(|u| {
+                    char::from_u32(u16::from_le_bytes([u[0], u[1]]) as u32).unwrap_or('\u{fffd}')
+                }));
             }
         }
         // Paragraph styles and lists.
@@ -86,17 +150,59 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
         chars
     };
 
-    let md = to_markdown(&raw, &pieces, &runs);
+    let main_len = ccp_main.min(raw.len());
+    let mut md = to_markdown(&raw[..main_len], 0, &pieces, &runs);
+    // Append the other text stories in order; headers are page furniture and only reported.
+    let omitted: Vec<String> = Vec::new();
+    let mut at = main_len;
+    for (i, name) in ["Footnotes", "", "", "Comments", "Endnotes", "Text boxes"]
+        .iter()
+        .enumerate()
+    {
+        let end = (at + stories[i]).min(raw.len());
+        let part = &raw[at..end];
+        if i == 1 {
+            let lines = unique_lines(&to_markdown(part, at, &pieces, &runs));
+            if !lines.is_empty() {
+                md.push_str(&format!(
+                    "\n## Page headers and footers\n\n{}\n",
+                    lines.join("\n")
+                ));
+            }
+        }
+        if !name.is_empty() {
+            let text = to_markdown(part, at, &pieces, &runs);
+            let items: Vec<String> = text
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(|t| format!("- {}", t.trim_start_matches("- ")))
+                .collect();
+            if !items.is_empty() {
+                md.push_str(&format!("\n## {name}\n\n{}\n", items.join("\n")));
+            }
+        }
+        at = end;
+    }
     // A short first line without sentence punctuation is almost always the title.
     let mut blocks = md.split("\n\n");
     let first = blocks.next().unwrap_or("").trim().to_string();
     let rest: Vec<&str> = blocks.collect();
-    let (title, md) = if !first.is_empty() && first.chars().count() <= 80 && !first.contains('\n') && !first.ends_with(['.', ':', ';', ',']) && !first.starts_with(['|', '-']) {
+    let (title, md) = if let Some(h) = first.strip_prefix("# ") {
+        (h.trim().to_string(), md.clone())
+    } else if !first.is_empty()
+        && first.chars().count() <= 80
+        && !first.contains('\n')
+        && !first.ends_with(['.', ':', ';', ','])
+        && !first.starts_with(['|', '-'])
+    {
         (first.clone(), format!("# {first}\n\n{}", rest.join("\n\n")))
     } else {
         (fallback.to_string(), md)
     };
-    Ok((title, md))
+    let mut out = super::Out::new(title, md);
+    out.omitted = omitted;
+    Ok(out)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -105,6 +211,8 @@ struct ParaInfo {
     heading: u8,
     /// Nesting level when the paragraph belongs to a bulleted or numbered list.
     list: Option<u8>,
+    /// The paragraph sits inside a table cell.
+    in_table: bool,
 }
 
 struct Piece {
@@ -116,20 +224,32 @@ struct Piece {
 /// Paragraph property runs: (first file offset, end file offset, properties), sorted.
 fn read_runs(word: &[u8], table: &[u8], fc: usize, lcb: usize) -> Vec<(usize, usize, ParaInfo)> {
     let mut runs = Vec::new();
-    let Some(plcf) = table.get(fc..fc.saturating_add(lcb)) else { return runs };
+    let Some(plcf) = table.get(fc..fc.saturating_add(lcb)) else {
+        return runs;
+    };
     if lcb < 8 {
         return runs;
     }
     let n = (lcb - 4) / 8;
     for k in 0..n {
-        let Ok(pn) = u32_at(plcf, 4 * (n + 1) + 4 * k) else { break };
+        let Ok(pn) = u32_at(plcf, 4 * (n + 1) + 4 * k) else {
+            break;
+        };
         let base = (pn & 0x3F_FFFF) as usize * 512;
-        let Some(fkp) = word.get(base..base + 512) else { continue };
+        let Some(fkp) = word.get(base..base + 512) else {
+            continue;
+        };
         let crun = fkp[511] as usize;
         for i in 0..crun {
-            let (Ok(a), Ok(b)) = (u32_at(fkp, 4 * i), u32_at(fkp, 4 * (i + 1))) else { break };
+            let (Ok(a), Ok(b)) = (u32_at(fkp, 4 * i), u32_at(fkp, 4 * (i + 1))) else {
+                break;
+            };
             let boff = fkp.get(4 * (crun + 1) + 13 * i).copied().unwrap_or(0) as usize;
-            let info = if boff == 0 { ParaInfo::default() } else { parse_papx(fkp, boff * 2).unwrap_or_default() };
+            let info = if boff == 0 {
+                ParaInfo::default()
+            } else {
+                parse_papx(fkp, boff * 2).unwrap_or_default()
+            };
             runs.push((a as usize, b as usize, info));
         }
     }
@@ -139,10 +259,22 @@ fn read_runs(word: &[u8], table: &[u8], fc: usize, lcb: usize) -> Vec<(usize, us
 
 fn parse_papx(fkp: &[u8], off: usize) -> Option<ParaInfo> {
     let cb = *fkp.get(off)?;
-    let (start, len) = if cb == 0 { (off + 2, 2 * *fkp.get(off + 1)? as usize) } else { (off + 1, (2 * cb as usize).checked_sub(1)?) };
+    let (start, len) = if cb == 0 {
+        (off + 2, 2 * *fkp.get(off + 1)? as usize)
+    } else {
+        (off + 1, (2 * cb as usize).checked_sub(1)?)
+    };
     let data = fkp.get(start..start + len)?;
     let istd = u16_at(data, 0).ok()?;
-    let mut info = ParaInfo { heading: if (1..=9).contains(&istd) { istd as u8 } else { 0 }, list: None };
+    let mut info = ParaInfo {
+        heading: if (1..=9).contains(&istd) {
+            istd as u8
+        } else {
+            0
+        },
+        list: None,
+        in_table: false,
+    };
     let (mut ilfo, mut ilvl) = (0i16, 0u8);
     let mut pos = 2;
     while pos + 2 <= data.len() {
@@ -166,6 +298,7 @@ fn parse_papx(fkp: &[u8], off: usize) -> Option<ParaInfo> {
         match op {
             0x460B if size >= 2 => ilfo = i16::from_le_bytes([operand[0], operand[1]]),
             0x2602 => ilvl = operand[0],
+            0x2416 => info.in_table = operand[0] != 0,
             _ => {}
         }
         pos += size;
@@ -181,10 +314,25 @@ fn para_info(pieces: &[Piece], runs: &[(usize, usize, ParaInfo)], cp: usize) -> 
         return ParaInfo::default();
     }
     let idx = pieces.partition_point(|p| p.cp0 <= cp).saturating_sub(1);
-    let Some(p) = pieces.get(idx) else { return ParaInfo::default() };
+    let Some(p) = pieces.get(idx) else {
+        return ParaInfo::default();
+    };
     let fc = p.off + (cp - p.cp0) * if p.wide { 2 } else { 1 };
     let r = runs.partition_point(|r| r.0 <= fc);
-    r.checked_sub(1).and_then(|i| runs.get(i)).filter(|r| fc < r.1).map_or(ParaInfo::default(), |r| r.2)
+    r.checked_sub(1)
+        .and_then(|i| runs.get(i))
+        .filter(|r| fc < r.1)
+        .map_or(ParaInfo::default(), |r| r.2)
+}
+
+/// Distinct non-empty lines as list items (headers repeat across sections).
+fn unique_lines(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    text.lines()
+        .map(|l| l.trim().trim_start_matches("- ").trim())
+        .filter(|l| l.chars().any(char::is_alphanumeric) && seen.insert(l.to_string()))
+        .map(|l| format!("- {l}"))
+        .collect()
 }
 
 fn flush_table(rows: &mut Vec<Vec<String>>, blocks: &mut Vec<String>) {
@@ -206,7 +354,12 @@ fn flush_table(rows: &mut Vec<Vec<String>>, blocks: &mut Vec<String>) {
 }
 
 /// Word control characters -> Markdown paragraphs and tables.
-fn to_markdown(raw: &[char], pieces: &[Piece], runs: &[(usize, usize, ParaInfo)]) -> String {
+fn to_markdown(
+    raw: &[char],
+    cp_base: usize,
+    pieces: &[Piece],
+    runs: &[(usize, usize, ParaInfo)],
+) -> String {
     let mut blocks: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut cells: Vec<String> = Vec::new();
@@ -215,7 +368,10 @@ fn to_markdown(raw: &[char], pieces: &[Piece], runs: &[(usize, usize, ParaInfo)]
     // One entry per open field; true while we are inside its instruction part.
     let mut fields: Vec<bool> = Vec::new();
 
-    let finish = |cur: &mut String, blocks: &mut Vec<String>, rows: &mut Vec<Vec<String>>, info: ParaInfo| {
+    let finish = |cur: &mut String,
+                  blocks: &mut Vec<String>,
+                  rows: &mut Vec<Vec<String>>,
+                  info: ParaInfo| {
         let t = cur.split_whitespace().collect::<Vec<_>>().join(" ");
         cur.clear();
         if t.is_empty() {
@@ -251,7 +407,19 @@ fn to_markdown(raw: &[char], pieces: &[Piece], runs: &[(usize, usize, ParaInfo)]
             }
             _ if fields.iter().any(|&in_instruction| in_instruction) => {}
             '\r' | '\x0c' => {
-                let info = if c == '\r' { para_info(pieces, runs, cp) } else { ParaInfo::default() };
+                let info = if c == '\r' {
+                    para_info(pieces, runs, cp_base + cp)
+                } else {
+                    ParaInfo::default()
+                };
+                if info.in_table {
+                    // A cell holding several paragraphs: keep them in the same cell.
+                    cur.push(' ');
+                    continue;
+                }
+                if !cells.is_empty() {
+                    rows.push(std::mem::take(&mut cells));
+                }
                 finish(&mut cur, &mut blocks, &mut rows, info);
                 last_was_cell = false;
             }
@@ -276,9 +444,6 @@ fn to_markdown(raw: &[char], pieces: &[Piece], runs: &[(usize, usize, ParaInfo)]
             '\t' | '\u{a0}' => cur.push(' '),
             c if (c as u32) < 0x20 || c == '\u{fffe}' || c == '\u{ffff}' => {}
             c => {
-                if !cells.is_empty() && cur.is_empty() && !last_was_cell {
-                    cells.clear();
-                }
                 cur.push(c);
                 last_was_cell = false;
             }
@@ -297,7 +462,7 @@ mod tests {
     fn control_characters_become_paragraphs_tables_and_field_results() {
         let raw = "Title\rBody \x13 HYPERLINK \"http://x\" \x14link text\x15 here.\rA\x07B\x07\x071\x072\x07\x07After table.\r";
         let chars: Vec<char> = raw.chars().collect();
-        let md = to_markdown(&chars, &[], &[]);
+        let md = to_markdown(&chars, 0, &[], &[]);
         assert!(md.starts_with("Title\n\nBody link text here.\n\n"), "{md}");
         assert!(md.contains("| A | B |\n| --- | --- |\n| 1 | 2 |"), "{md}");
         assert!(md.trim_end().ends_with("After table."), "{md}");

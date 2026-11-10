@@ -44,7 +44,11 @@ mod tests {
 
     #[test]
     fn joins_wrapped_lines_and_hyphens() {
-        let out = reflow("The quick brown\nfox jumps over the lazy do-\ngs today.\n\nNext paragraph.\n");
-        assert_eq!(out, "The quick brown fox jumps over the lazy dogs today.\n\nNext paragraph.\n\n");
+        let out =
+            reflow("The quick brown\nfox jumps over the lazy do-\ngs today.\n\nNext paragraph.\n");
+        assert_eq!(
+            out,
+            "The quick brown fox jumps over the lazy dogs today.\n\nNext paragraph.\n\n"
+        );
     }
 }

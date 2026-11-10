@@ -9,7 +9,10 @@ pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
 fn parse_time(s: &str) -> Option<u32> {
     let s = s.trim().replace(',', ".");
     let main = s.split('.').next()?;
-    let parts: Vec<u32> = main.split(':').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    let parts: Vec<u32> = main
+        .split(':')
+        .map(|p| p.parse().ok())
+        .collect::<Option<_>>()?;
     match parts.as_slice() {
         [h, m, s] => Some(h * 3600 + m * 60 + s),
         [m, s] => Some(m * 60 + s),
@@ -18,7 +21,11 @@ fn parse_time(s: &str) -> Option<u32> {
 }
 
 fn stamp(secs: u32) -> String {
-    if secs >= 3600 { format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60) } else { format!("{}:{:02}", secs / 60, secs % 60) }
+    if secs >= 3600 {
+        format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
+    } else {
+        format!("{}:{:02}", secs / 60, secs % 60)
+    }
 }
 
 fn strip_tags(s: &str) -> String {
@@ -42,20 +49,20 @@ pub fn transcript(text: &str, title: &str) -> String {
     let mut cues: Vec<(u32, String)> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        if let Some((start, _)) = lines[i].split_once("-->") {
-            if let Some(t) = parse_time(start.split_whitespace().last().unwrap_or("")) {
-                let mut body = Vec::new();
+        if let Some((start, _)) = lines[i].split_once("-->")
+            && let Some(t) = parse_time(start.split_whitespace().last().unwrap_or(""))
+        {
+            let mut body = Vec::new();
+            i += 1;
+            while i < lines.len() && !lines[i].trim().is_empty() {
+                body.push(strip_tags(lines[i]).trim().to_string());
                 i += 1;
-                while i < lines.len() && !lines[i].trim().is_empty() {
-                    body.push(strip_tags(lines[i]).trim().to_string());
-                    i += 1;
-                }
-                let joined = body.join(" ");
-                if !joined.trim().is_empty() {
-                    cues.push((t, joined));
-                }
-                continue;
             }
+            let joined = body.join(" ");
+            if !joined.trim().is_empty() {
+                cues.push((t, joined));
+            }
+            continue;
         }
         i += 1;
     }
@@ -70,7 +77,11 @@ pub fn transcript(text: &str, title: &str) -> String {
                 para.clear();
             }
             window = w;
-            out.push_str(&format!("## {} – {}\n\n", stamp(w * WINDOW), stamp((w + 1) * WINDOW)));
+            out.push_str(&format!(
+                "## {} – {}\n\n",
+                stamp(w * WINDOW),
+                stamp((w + 1) * WINDOW)
+            ));
         }
         para.push_str(&line);
         para.push(' ');

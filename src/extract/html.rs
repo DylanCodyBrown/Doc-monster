@@ -3,7 +3,8 @@ use anyhow::Result;
 
 pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
     let html = String::from_utf8_lossy(bytes);
-    let md = htmd::convert(&strip_head(&html)).map_err(|e| anyhow::anyhow!("html conversion failed: {e}"))?;
+    let md = htmd::convert(&strip_head(&html))
+        .map_err(|e| anyhow::anyhow!("html conversion failed: {e}"))?;
     let title = html_title(&html)
         .or_else(|| first_heading(&md))
         .unwrap_or_else(|| fallback.to_string());
@@ -34,7 +35,11 @@ mod tests {
 
     #[test]
     fn title_not_duplicated_in_body() {
-        let (title, md) = convert(b"<html><head><title>T</title></head><body><h1>H</h1></body></html>", "x").unwrap();
+        let (title, md) = convert(
+            b"<html><head><title>T</title></head><body><h1>H</h1></body></html>",
+            "x",
+        )
+        .unwrap();
         assert_eq!(title, "T");
         assert!(!md.contains("T\n") && md.contains("# H"));
     }

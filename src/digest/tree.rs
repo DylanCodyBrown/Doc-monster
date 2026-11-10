@@ -71,7 +71,11 @@ impl Node {
             .iter()
             .rev()
             .find_map(Node::last_real_title)
-            .or(if self.kind == Kind::Real && !self.title.is_empty() { Some(&self.title) } else { None })
+            .or(if self.kind == Kind::Real && !self.title.is_empty() {
+                Some(&self.title)
+            } else {
+                None
+            })
     }
 }
 
@@ -85,7 +89,11 @@ pub fn parse(md: &str) -> Node {
     fn flush(stack: &mut [(usize, Node)], para: &mut String, is_item: &mut bool) {
         if !para.trim().is_empty() {
             let text = nlp::plain(para);
-            let units = if *is_item { vec![text] } else { nlp::sentences(&text) };
+            let units = if *is_item {
+                vec![text]
+            } else {
+                nlp::sentences(&text)
+            };
             if !units.is_empty() {
                 stack.last_mut().unwrap().1.paras.push(units);
             }
@@ -123,7 +131,10 @@ pub fn parse(md: &str) -> Node {
             while stack.len() > 1 && stack.last().unwrap().0 >= hashes {
                 close(&mut stack);
             }
-            stack.push((hashes, Node::new(Kind::Real, &nlp::plain(t[hashes..].trim()))));
+            stack.push((
+                hashes,
+                Node::new(Kind::Real, &nlp::plain(t[hashes..].trim())),
+            ));
             continue;
         }
         if t.starts_with('|') {
@@ -144,7 +155,13 @@ pub fn parse(md: &str) -> Node {
             .or_else(|| t.strip_prefix("+ "))
             .or_else(|| {
                 let digits = t.chars().take_while(char::is_ascii_digit).count();
-                (digits > 0).then(|| t[digits..].strip_prefix(". ").or_else(|| t[digits..].strip_prefix(") "))).flatten()
+                (digits > 0)
+                    .then(|| {
+                        t[digits..]
+                            .strip_prefix(". ")
+                            .or_else(|| t[digits..].strip_prefix(") "))
+                    })
+                    .flatten()
             });
         if let Some(body) = item_body {
             flush(&mut stack, &mut para, &mut is_item);
@@ -289,7 +306,13 @@ pub fn reshape(node: &mut Node) {
         };
         node.children = split_by(children, &bounds)
             .into_iter()
-            .map(|g| if g.len() == 1 { g.into_iter().next().unwrap() } else { group_node(Kind::Group, g) })
+            .map(|g| {
+                if g.len() == 1 {
+                    g.into_iter().next().unwrap()
+                } else {
+                    group_node(Kind::Group, g)
+                }
+            })
             .collect();
         if node.children.len() >= n {
             break;
@@ -318,7 +341,11 @@ mod tests {
     fn groups_many_siblings_into_chapters_at_topic_shifts() {
         let mut root = Node::new(Kind::Real, "");
         for i in 0..40 {
-            let topic = if i < 20 { "datastore session profile" } else { "monetization robux gamepass" };
+            let topic = if i < 20 {
+                "datastore session profile"
+            } else {
+                "monetization robux gamepass"
+            };
             let mut n = Node::new(Kind::Real, &format!("S{i}"));
             n.paras.push(vec![format!("{topic} detail {i}.")]);
             root.children.push(n);
@@ -326,7 +353,11 @@ mod tests {
         compute_counts(&mut root);
         reshape(&mut root);
         assert!(root.children.len() <= MAX_CHILDREN);
-        assert!(root.children.iter().all(|c| c.kind == Kind::Group || c.kind == Kind::Real));
+        assert!(
+            root.children
+                .iter()
+                .all(|c| c.kind == Kind::Group || c.kind == Kind::Real)
+        );
         // The first chapter must not mix both topics at its boundary.
         let first = &root.children[0];
         assert!(first.last_real_title().is_some());
@@ -336,7 +367,11 @@ mod tests {
     fn headingless_text_becomes_segments() {
         let mut root = Node::new(Kind::Real, "");
         for i in 0..60 {
-            let t = if i < 30 { "alpha beta gamma" } else { "delta epsilon zeta" };
+            let t = if i < 30 {
+                "alpha beta gamma"
+            } else {
+                "delta epsilon zeta"
+            };
             root.paras.push(vec![format!("{t} paragraph {i} text.")]);
         }
         compute_counts(&mut root);
