@@ -4,6 +4,19 @@ Four things, installed once, in this order: Rust (to build Doc Monster), FFmpeg 
 Tesseract (reads the text shown on screen in videos), and Doc Monster itself. All are free and run
 on your machine.
 
+## Quickest: download a ready-made program
+
+From the [Releases page](https://github.com/DylanCodyBrown/Doc-monster/releases), download the
+file for your computer (`doc-monster-windows-x86_64.zip`, `doc-monster-macos-arm64.tar.gz` or
+`doc-monster-linux-x86_64.tar.gz`), unpack it, and put `doc-monster` (or `doc-monster.exe`)
+somewhere on your `PATH`. You still need step 2 below (FFmpeg and Tesseract) for videos; you do
+not need Rust.
+
+macOS may refuse to open a downloaded program the first time; allow it once with
+`xattr -d com.apple.quarantine ./doc-monster`.
+
+To build it yourself instead, follow the steps below.
+
 ## 1. Install Rust (one time)
 
 **macOS / Linux (bash or zsh)**
