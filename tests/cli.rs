@@ -430,6 +430,8 @@ fn video_on_screen_text_is_read_and_merged_with_what_is_said() {
     assert!(saving < said && said < trading, "{md}");
 }
 
+// Builds a PATH holding FFmpeg but not Tesseract out of symbolic links, which needs Unix.
+#[cfg(unix)]
 #[test]
 fn missing_tesseract_is_a_clear_error() {
     if !has("ffmpeg") {
@@ -447,7 +449,6 @@ fn missing_tesseract_is_a_clear_error() {
                 .stdout,
         )
         .unwrap();
-        #[cfg(unix)]
         std::os::unix::fs::symlink(real.trim(), bin.path().join(tool)).unwrap();
     }
     let out = tempfile::tempdir().unwrap();
