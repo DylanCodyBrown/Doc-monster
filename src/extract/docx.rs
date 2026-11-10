@@ -1,0 +1,178 @@
+use anyhow::{Context, Result};
+use quick_xml::{Reader, events::Event};
+use std::io::{Cursor, Read};
+
+pub fn convert(bytes: &[u8], fallback: &str) -> Result<(String, String)> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).context("not a valid DOCX archive")?;
+    let mut xml = String::new();
+    zip.by_name("word/document.xml")
+        .context("DOCX is missing word/document.xml")?
+        .read_to_string(&mut xml)?;
+    let md = document_xml_to_markdown(&xml)?;
+    let title = super::first_heading(&md).unwrap_or_else(|| fallback.to_string());
+    Ok((title, md))
+}
+
+#[derive(Default)]
+struct Para {
+    text: String,
+    heading: Option<usize>,
+    list: bool,
+}
+
+fn document_xml_to_markdown(xml: &str) -> Result<String> {
+    let mut reader = Reader::from_str(xml);
+    let mut out = String::new();
+    let mut para = Para::default();
+    let mut in_text = false;
+    // Table state: rows of cells; `None` when not inside a table.
+    let mut table: Option<Vec<Vec<String>>> = None;
+    let mut cell = String::new();
+
+    loop {
+        match reader.read_event()? {
+            Event::Start(e) | Event::Empty(e) => match e.local_name().as_ref() {
+                "p" => para = Para::default(),
+                "t" => in_text = true,
+                "tab" => para.text.push('\t'),
+                "br" => para.text.push(' '),
+                "numPr" => para.list = true,
+                "pStyle" => {
+                    for a in e.attributes().flatten() {
+                        if a.key.local_name().as_ref() == "val" {
+                            let v = a.value.to_ascii_lowercase();
+                            para.heading = if v == "title" {
+                                Some(1)
+                            } else {
+                                v.strip_prefix("heading")
+                                    .and_then(|n| n.trim().parse::<usize>().ok())
+                                    .map(|n| n.clamp(1, 6))
+                            };
+                            if v.contains("list") {
+                                para.list = true;
+                            }
+                        }
+                    }
+                }
+                "tbl" => table = Some(Vec::new()),
+                "tr" => {
+                    if let Some(t) = table.as_mut() {
+                        t.push(Vec::new());
+                    }
+                }
+                _ => {}
+            },
+            Event::Text(t) if in_text => para.text.push_str(&*t),
+            Event::GeneralRef(r) if in_text => {
+                if let Some(c) = r.resolve_char_ref()? {
+                    para.text.push(c);
+                } else {
+                    match &*r {
+                        "amp" => para.text.push('&'),
+                        "lt" => para.text.push('<'),
+                        "gt" => para.text.push('>'),
+                        "quot" => para.text.push('"'),
+                        "apos" => para.text.push('\''),
+                        _ => {}
+                    }
+                }
+            }
+            Event::End(e) => match e.local_name().as_ref() {
+                "t" => in_text = false,
+                "p" => {
+                    let text = para.text.trim();
+                    if table.is_some() {
+                        if !cell.is_empty() && !text.is_empty() {
+                            cell.push(' ');
+                        }
+                        cell.push_str(text);
+                    } else if !text.is_empty() {
+                        match (para.heading, para.list) {
+                            (Some(n), _) => out.push_str(&format!("{} {text}\n\n", "#".repeat(n))),
+                            (None, true) => out.push_str(&format!("- {text}\n")),
+                            _ => out.push_str(&format!("{text}\n\n")),
+                        }
+                    }
+                    para = Para::default();
+                }
+                "tc" => {
+                    if let Some(row) = table.as_mut().and_then(|t| t.last_mut()) {
+                        row.push(cell.replace('|', "\\|"));
+                    }
+                    cell.clear();
+                }
+                "tbl" => {
+                    if let Some(rows) = table.take() {
+                        out.push_str(&render_table(&rows));
+                        out.push('\n');
+                    }
+                }
+                _ => {}
+            },
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(tidy_lists(&out))
+}
+
+/// Lists emit "- item\n" without a trailing blank line; make sure the block
+/// after a list is separated by one so Markdown renders it correctly.
+fn tidy_lists(md: &str) -> String {
+    let mut out = String::new();
+    let mut prev_list = false;
+    for line in md.lines() {
+        let is_list = line.starts_with("- ");
+        if prev_list && !is_list && !line.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+        out.push('\n');
+        prev_list = is_list;
+    }
+    out
+}
+
+fn render_table(rows: &[Vec<String>]) -> String {
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if width == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    for (i, row) in rows.iter().enumerate() {
+        out.push('|');
+        for c in 0..width {
+            out.push_str(&format!(" {} |", row.get(c).map(String::as_str).unwrap_or("")));
+        }
+        out.push('\n');
+        if i == 0 {
+            out.push('|');
+            out.push_str(&" --- |".repeat(width));
+            out.push('\n');
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const W: &str = r#"<w:document xmlns:w="x"><w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Report</w:t></w:r></w:p>
+<w:p><w:r><w:t>Fish &amp; chips</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr/></w:pPr><w:r><w:t>one</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr/></w:pPr><w:r><w:t>two</w:t></w:r></w:p>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc></w:tr>
+<w:tr><w:tc><w:p><w:r><w:t>1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+</w:body></w:document>"#;
+
+    #[test]
+    fn converts_headings_entities_lists_tables() {
+        let md = document_xml_to_markdown(W).unwrap();
+        assert!(md.contains("# Report\n"));
+        assert!(md.contains("Fish & chips"));
+        assert!(md.contains("- one\n- two\n"));
+        assert!(md.contains("| A | B |\n| --- | --- |\n| 1 | 2 |"));
+    }
+}
