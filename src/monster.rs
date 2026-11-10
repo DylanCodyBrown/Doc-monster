@@ -1,4 +1,5 @@
-//! The animated fat monster that chomps documents while they are converted.
+//! The animated monster: a greedy green slime ghost that gulps documents while they are
+//! converted. It hovers (bobs up and down), drips slime, and chews with its mouth wide open.
 //!
 //! Drawn on standard error, and only when standard error is an interactive terminal, so
 //! scripts, pipes and agents get clean output automatically.
@@ -9,7 +10,7 @@ use std::time::{Duration, Instant};
 
 const FRAME: Duration = Duration::from_millis(80);
 const LANE: usize = 22; // width of the space the document slides across
-const BODY: usize = 29; // width of the monster
+const BODY: usize = 31; // width of the ghost
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mouth {
@@ -19,52 +20,56 @@ enum Mouth {
     Full,
 }
 
-fn body(mouth: Mouth, happy: bool) -> [String; 11] {
-    let eyes = if happy {
+/// The ghost, 11 rows. Each row is written as just its shape and centred in `BODY` columns, so
+/// the side walls of the face always line up whatever the mouth is doing.
+fn body(mouth: Mouth, happy: bool, drip: usize) -> [String; 11] {
+    let (left, right) = if happy {
         ("(^)", "(^)")
     } else {
-        ("(o)", "(o)")
+        ("(o)", "(O)")
     };
     let m: [&str; 3] = match mouth {
         Mouth::Wide => [
-            r"   |    .-'''''''-.    |",
-            r"   |   (   N O M   )   |",
-            r"   |    '-._____.-'    |",
+            r"  .'^^^^^^^^^^^^^'.  ",
+            r"  (    G U L P    )  ",
+            r"  '.vvvvvvvvvvvvv.'  ",
         ],
         Mouth::Half => [
-            r"   |    .-.......-.    |",
-            r"   |   (___________)   |",
-            r"   |    '---------'    |",
+            r"   .-'''''''''''-.   ",
+            r"  (_______________)  ",
+            r"   '-.vvvvvvvvv.-'   ",
         ],
         Mouth::Shut => [
-            r"   |                   |",
-            r"   |   (===========)   |",
-            r"   |                   |",
+            r"                     ",
+            r"   \_____________/   ",
+            r"                     ",
         ],
         Mouth::Full => [
-            r"   |                   |",
-            r"   |   \___________/   |",
-            r"   |       burp!       |",
+            r"                     ",
+            r"   \_____________/   ",
+            r"       *burp*        ",
         ],
     };
-    let belly = if happy {
-        r"    \ (  o  o  o  o ) /"
-    } else {
-        r"    \ (             ) /"
-    };
-    [
-        r"       .-'''''''''''-.".into(),
-        r"     .'               '.".into(),
-        format!(r"    /   {}     {}   \", eyes.0, eyes.1),
-        r"   |                   |".into(),
-        m[0].into(),
-        m[1].into(),
-        m[2].into(),
-        r"   (   .-----------.   )".into(),
-        belly.into(),
-        r"     '.'-.._____..-'.'".into(),
-        r"       /_/       \_\".into(),
-    ]
+    // Slime dripping off the tail, three positions that cycle.
+    let drips = [
+        r"  '    :     '  :  ",
+        r"  :    '     :  '  ",
+        r"  .    :     .  :  ",
+    ][drip % 3];
+    let rows: [String; 11] = [
+        ".-~~~~~~~~~-.".into(),
+        ".'             '.".into(),
+        format!(r"/  {left}         {right}  \"),
+        "|                     |".into(),
+        format!("|{}|", m[0]),
+        format!("|{}|", m[1]),
+        format!("|{}|", m[2]),
+        "o=|                     |=o".into(),
+        r"\   ~   ~   ~   ~   /".into(),
+        "'~._  _.~~~._  _.~'".into(),
+        drips.into(),
+    ];
+    rows.map(|r| format!("{r:^BODY$}"))
 }
 
 const DOC: [&str; 4] = [" ___ ", "|=- |", "|-= |", "|___|"];
@@ -99,7 +104,8 @@ impl Monster {
         }
     }
 
-    /// One frame: the document slides toward the mouth, then the monster chews.
+    /// One frame: the document slides toward the open mouth, then the ghost chews, all while
+    /// hovering up and down and dripping slime.
     fn frame(&self, t: usize, name: &str) -> Vec<String> {
         const APPROACH: usize = 7;
         let cycle = APPROACH + 6;
@@ -122,26 +128,37 @@ impl Monster {
                 Mouth::Wide,
             ][(s - APPROACH) % 6],
         };
-        let crumbs = step >= APPROACH && (step - APPROACH).is_multiple_of(2);
+        let splats = step >= APPROACH && (step - APPROACH).is_multiple_of(2);
+        // Hover: the ghost sits one row lower every other pair of frames.
+        let bob = (t / 2) % 2;
+        let mut rows: Vec<String> = Vec::with_capacity(12);
+        if bob == 1 {
+            rows.push(" ".repeat(BODY));
+        }
+        rows.extend(body(mouth, false, t));
+        if bob == 0 {
+            rows.push(" ".repeat(BODY));
+        }
         let mut lines = Vec::with_capacity(13);
-        for (row, b) in body(mouth, false).iter().enumerate() {
+        for (row, b) in rows.iter().enumerate() {
+            let ghost_row = row.wrapping_sub(bob);
             let mut lane = " ".repeat(LANE);
             if let Some(x) = doc_x
-                && (3..7).contains(&row)
+                && (3..7).contains(&ghost_row)
             {
-                lane.replace_range(x..x + DOC[0].len(), DOC[row - 3]);
+                lane.replace_range(x..x + DOC[0].len(), DOC[ghost_row - 3]);
             }
             let lane = self.paint(&lane, "33");
-            let mut b = format!("{b:<BODY$}");
-            if crumbs && row == 6 {
-                b.push_str(" * .");
+            let mut b = b.clone();
+            if splats && ghost_row == 6 {
+                b.push_str(" ~*.");
             }
             lines.push(format!("{lane}{}", self.paint(&b, "32")));
         }
         let shown: String = name.chars().take(LANE + BODY - 14).collect();
         lines.push(format!(
             "  {} {shown}",
-            self.paint(["nom", "nom nom", "nom nom nom"][t / 3 % 3], "1")
+            self.paint(["gulp", "gulp slurp", "gulp slurp munch"][t / 3 % 3], "1")
         ));
         lines
     }
@@ -189,13 +206,13 @@ impl Monster {
         })
     }
 
-    /// The hungry monster, shown when waiting for files to be dropped in.
+    /// The hungry ghost, shown when waiting for files to be dropped in.
     pub fn hello(&self) {
         if !self.enabled {
             return;
         }
         let mut out = String::new();
-        for b in body(Mouth::Wide, false) {
+        for b in body(Mouth::Wide, false, 0) {
             out.push_str(&self.paint(&b, "32"));
             out.push('\n');
         }
@@ -203,13 +220,13 @@ impl Monster {
         let _ = std::io::stderr().write_all(out.as_bytes());
     }
 
-    /// The satisfied monster, shown once at the end.
+    /// The satisfied ghost, shown once at the end.
     pub fn burp(&self, eaten: usize) {
         if !self.enabled || eaten == 0 {
             return;
         }
         let mut out = String::new();
-        for b in body(Mouth::Full, true) {
+        for b in body(Mouth::Full, true, 2) {
             out.push_str(&" ".repeat(LANE));
             out.push_str(&self.paint(&b, "32"));
             out.push('\n');
@@ -229,20 +246,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frames_are_rectangular_and_the_document_reaches_the_mouth() {
+    fn the_face_walls_line_up_for_every_mouth() {
+        for mouth in [Mouth::Wide, Mouth::Half, Mouth::Shut, Mouth::Full] {
+            let rows = body(mouth, false, 0);
+            for (r, row) in rows.iter().enumerate().take(8).skip(3) {
+                let chars: Vec<char> = row.chars().collect();
+                assert_eq!(chars.len(), BODY, "row {r}: {row:?}");
+                assert_eq!((chars[4], chars[26]), ('|', '|'), "row {r} walls: {row:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn frames_are_rectangular_bob_and_the_document_reaches_the_mouth() {
         let m = Monster {
             enabled: true,
             color: false,
         };
         for t in 0..30 {
             let f = m.frame(t, "report.docx");
-            assert_eq!(f.len(), 12);
-            for l in &f[..11] {
+            assert_eq!(
+                f.len(),
+                13,
+                "12 rows of ghost and hover space, then the caption"
+            );
+            for l in &f[..12] {
                 assert!(l.chars().count() <= LANE + BODY + 4, "{l}");
             }
         }
+        // It hovers: the top of the head moves between frames.
+        let top = |t| {
+            m.frame(t, "x")
+                .iter()
+                .position(|l| l.contains(".-~~~~~~~~~-."))
+                .unwrap()
+        };
+        assert_ne!(top(0), top(2));
         // Mid-approach the document is visible; while chewing it is gone.
-        assert!(m.frame(3, "x")[4].contains("|=- |"));
+        assert!(m.frame(3, "x").iter().any(|l| l.contains("|=- |")));
         assert!(!m.frame(9, "x").iter().any(|l| l.contains("|=- |")));
     }
 }
