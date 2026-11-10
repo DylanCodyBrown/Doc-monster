@@ -1,12 +1,14 @@
 //! Doc Monster: eats documents, produces Markdown.
 //!
-//! Pipeline: detect format -> extract (structure preserving) -> chunk ->
-//! summarize (local model, or offline fallback) -> render Markdown.
+//! Pipeline: detect format -> extract (structure preserving) -> clean ->
+//! digest (hierarchical, no model needed; a local model is optional) -> render Markdown.
 //!
 //! Quality rule: the summary is *added* to the output, never substituted for
 //! the extracted content. Nothing from the source is thrown away.
 
 pub mod chunk;
+pub mod clean;
+pub mod digest;
 pub mod extract;
 pub mod render;
 pub mod summarize;

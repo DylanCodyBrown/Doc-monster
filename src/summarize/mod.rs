@@ -1,7 +1,5 @@
-mod extractive;
 mod ollama;
 
-pub use extractive::Extractive;
 pub use ollama::Ollama;
 
 use crate::chunk::chunk_markdown;

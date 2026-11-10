@@ -3,7 +3,10 @@ mod docx;
 mod html;
 mod json;
 mod pdf;
+mod subtitles;
 mod text;
+mod video;
+mod xlsx;
 
 use crate::Document;
 use anyhow::{Context, Result, bail};
@@ -18,6 +21,9 @@ pub enum Format {
     Json,
     Docx,
     Pdf,
+    Xlsx,
+    Video,
+    Subtitles,
     /// Any other text file (source code, config, logs). Wrapped in a code fence.
     Code,
 }
@@ -32,6 +38,9 @@ impl Format {
             Format::Json => "json",
             Format::Docx => "docx",
             Format::Pdf => "pdf",
+            Format::Xlsx => "spreadsheet",
+            Format::Video => "video",
+            Format::Subtitles => "subtitles",
             Format::Code => "code",
         }
     }
@@ -52,6 +61,9 @@ pub fn detect(path: &Path, bytes: &[u8]) -> Result<Format> {
         "json" => Some(Format::Json),
         "docx" => Some(Format::Docx),
         "pdf" => Some(Format::Pdf),
+        "xlsx" | "xlsm" | "xls" | "xlsb" | "ods" => Some(Format::Xlsx),
+        "mp4" | "m4v" | "mov" => Some(Format::Video),
+        "srt" | "vtt" => Some(Format::Subtitles),
         _ => None,
     };
     if let Some(f) = by_ext {
@@ -87,6 +99,9 @@ pub fn extract(path: &Path) -> Result<Document> {
         Format::Json => json::convert(&bytes, &fallback_title)?,
         Format::Docx => docx::convert(&bytes, &fallback_title)?,
         Format::Pdf => pdf::convert(&bytes, &fallback_title)?,
+        Format::Xlsx => xlsx::convert(&bytes, &fallback_title)?,
+        Format::Video => video::convert(&bytes, path, &fallback_title)?,
+        Format::Subtitles => subtitles::convert(&bytes, &fallback_title)?,
     };
 
     Ok(Document {

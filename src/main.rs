@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use doc_monster::{
-    extract, render,
-    summarize::{Extractive, Ollama, Summarizer, summarize_document},
+    clean, digest, extract, render,
+    summarize::{Ollama, Summarizer, summarize_document},
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -10,12 +10,11 @@ use walkdir::WalkDir;
 
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
 enum Backend {
-    /// Use Ollama if it is running with the model, otherwise fall back offline.
-    Auto,
+    /// Notebook-style hierarchical digest computed locally: free, offline, no model.
+    Digest,
+    /// Summaries from a local Ollama model (optional, still free and offline).
     Ollama,
-    /// Offline sentence ranking, no model needed.
-    Extractive,
-    /// Convert only, no summary.
+    /// Convert and clean only, no summary.
     None,
 }
 
@@ -29,9 +28,15 @@ struct Args {
     /// Folder for the Markdown output.
     #[arg(short, long, default_value = "monster-out")]
     out: PathBuf,
-    #[arg(long, value_enum, default_value = "auto")]
+    #[arg(long, value_enum, default_value = "digest")]
     backend: Backend,
-    /// Local model name as known to Ollama.
+    /// Write only the summary, leaving out the full converted content.
+    #[arg(long)]
+    condensed: bool,
+    /// Skip the Markdown cleanup pass (keep the converted text exactly as extracted).
+    #[arg(long)]
+    raw: bool,
+    /// Local model name as known to Ollama (only with --backend ollama).
     #[arg(long, default_value = "qwen2.5:1.5b")]
     model: String,
     #[arg(long, default_value = "http://localhost:11434")]
@@ -73,35 +78,17 @@ fn main() -> Result<()> {
 }
 
 fn pick_summarizer(args: &Args) -> Result<Option<Box<dyn Summarizer>>> {
-    let ollama = || Ollama {
+    if args.backend != Backend::Ollama {
+        return Ok(None);
+    }
+    let o = Ollama {
         url: args.ollama_url.trim_end_matches('/').to_string(),
         model: args.model.clone(),
     };
-    Ok(match args.backend {
-        Backend::None => None,
-        Backend::Extractive => Some(Box::new(Extractive { sentences: 5 })),
-        Backend::Ollama => {
-            let o = ollama();
-            if !o.is_ready()? {
-                bail!("model '{}' is not pulled; run: ollama pull {}", o.model, o.model);
-            }
-            Some(Box::new(o))
-        }
-        Backend::Auto => {
-            let o = ollama();
-            match o.is_ready() {
-                Ok(true) => Some(Box::new(o)),
-                other => {
-                    let why = match other {
-                        Ok(_) => format!("model '{}' not pulled", args.model),
-                        Err(e) => format!("{e:#}"),
-                    };
-                    eprintln!("note: using offline extractive summaries ({why})");
-                    Some(Box::new(Extractive { sentences: 5 }))
-                }
-            }
-        }
-    })
+    if !o.is_ready()? {
+        bail!("model '{}' is not pulled; run: ollama pull {}", o.model, o.model);
+    }
+    Ok(Some(Box::new(o)))
 }
 
 fn collect_files(inputs: &[PathBuf]) -> Vec<PathBuf> {
@@ -113,6 +100,17 @@ fn collect_files(inputs: &[PathBuf]) -> Vec<PathBuf> {
             }
         }
     }
+    // A subtitle file beside a video of the same name is that video's transcript:
+    // it is folded into the video's output instead of converted on its own.
+    let videos: std::collections::HashSet<PathBuf> = files
+        .iter()
+        .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("mp4" | "m4v" | "mov")))
+        .map(|p| p.with_extension(""))
+        .collect();
+    files.retain(|p| {
+        let is_sub = matches!(p.extension().and_then(|e| e.to_str()), Some("srt" | "vtt"));
+        !(is_sub && videos.contains(&p.with_extension("")))
+    });
     files
 }
 
@@ -122,21 +120,29 @@ fn process(
     summarizer: Option<&dyn Summarizer>,
     used: &mut HashSet<String>,
 ) -> Result<PathBuf> {
-    let doc = extract::extract(path)?;
+    let mut doc = extract::extract(path)?;
     if doc.markdown.trim().is_empty() {
         bail!("document is empty");
     }
-    let summary = match summarizer {
-        Some(s) => {
-            let text = summarize_document(s, &doc.markdown, args.chunk_chars)
-                .context("summarizing")?;
+    let mut note = None;
+    if !args.raw {
+        let (cleaned, report) = clean::clean(&doc.markdown);
+        doc.markdown = cleaned;
+        note = report.describe();
+    }
+    let summary: Option<(String, String)> = match (args.backend, summarizer) {
+        (Backend::None, _) => None,
+        (Backend::Ollama, Some(s)) => {
+            let text = summarize_document(s, &doc.markdown, args.chunk_chars).context("summarizing")?;
             Some((s.name(), text))
         }
-        None => None,
+        _ => digest::digest(&doc.markdown, note.as_deref())
+            .map(|d| ("hierarchical digest (no model)".to_string(), d.markdown)),
     };
     let rendered = render::render(
         &doc,
         summary.as_ref().map(|(m, t)| (m.as_str(), t.as_str())),
+        !args.condensed || summary.is_none(),
     );
 
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
