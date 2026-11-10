@@ -44,9 +44,7 @@ afterwards, `-o folder` to collect outputs elsewhere, `--overwrite`, `--no-summa
 
 Run `doc-monster` (or `feed` / `gorge` without a path) and the monster, a small slime pet, waits
 at the right of the prompt: drag files or folders onto the terminal window and press Enter. Its
-face shows
-how the last meal went. It understands the way every
-terminal writes a dropped file: backslash-escaped spaces (macOS Terminal, iTerm), single quotes
+face shows how the last meal went. It understands the way every terminal writes a dropped file: backslash-escaped spaces (macOS Terminal, iTerm), single quotes
 (Linux terminals), double quotes (Windows Terminal, PowerShell, Command Prompt) and `file://`
 addresses. Drop several at once if you like; an empty line quits.
 
