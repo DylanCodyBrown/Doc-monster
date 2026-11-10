@@ -43,24 +43,29 @@ fn minimal_xlsx() -> Vec<u8> {
 }
 
 #[test]
-fn spreadsheet_gets_table_and_column_profile() {
+fn spreadsheet_summary_is_structure_and_column_names_only() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sales.xlsx");
     std::fs::write(&path, minimal_xlsx()).unwrap();
     let doc = extract::extract(&path).unwrap();
     assert!(doc.markdown.contains("## Sheet: Sales"), "{}", doc.markdown);
-    assert!(
-        doc.markdown
-            .contains("Sheet \"Sales\" has 3 rows and 2 columns.")
-    );
-    assert!(
-        doc.markdown
-            .contains("smallest 400, largest 1,200, average 800, total 2,400"),
-        "{}",
-        doc.markdown
-    );
-    assert!(doc.markdown.contains("most common: pass (2)"));
     assert!(doc.markdown.contains("| pass | 1200 |"));
+    assert_eq!(
+        doc.description.as_deref(),
+        Some("Spreadsheet, 3 rows × 2 columns; columns item, robux.")
+    );
+    let summary = doc.summary.unwrap();
+    assert!(
+        summary.contains("- **Sales**: 3 rows × 2 columns"),
+        "{summary}"
+    );
+    assert!(summary.contains("Columns: `item`, `robux`"), "{summary}");
+    // Nothing about the values: no statistics, no most common values.
+    for told in [&summary, &doc.markdown] {
+        for word in ["smallest", "largest", "average", "most common", "distinct"] {
+            assert!(!told.contains(word), "{word} in {told}");
+        }
+    }
 }
 
 #[test]

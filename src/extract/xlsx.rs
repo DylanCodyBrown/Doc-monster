@@ -1,5 +1,6 @@
 use super::Out;
-use crate::profile::{Column, group};
+use super::tables::{self, Shape};
+use crate::profile::group;
 use anyhow::{Context, Result};
 use calamine::{Data, Reader, SheetVisible, open_workbook_auto_from_rs};
 use std::io::Cursor;
@@ -49,19 +50,6 @@ fn cell_text(c: &Data) -> String {
     s.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
-fn add_cell(col: &mut Column, cell: &Data) {
-    match cell {
-        Data::Empty => {}
-        Data::Float(f) => col.add_number(*f),
-        Data::Int(i) => col.add_number(*i as f64),
-        Data::Bool(b) => col.add_bool(*b),
-        Data::DateTime(dt) if dt.is_duration() => col.add_text(&duration(dt.as_f64())),
-        Data::DateTime(dt) => col.add_date(&serial_to_iso(dt.as_f64())),
-        Data::DateTimeIso(s) => col.add_date(s),
-        other => col.add_text(&other.to_string()),
-    }
-}
-
 /// Charts and pictures live in separate parts of the workbook archive; count them for the report.
 fn count_parts(bytes: &[u8], prefix: &str) -> usize {
     zip::ZipArchive::new(Cursor::new(bytes)).map_or(0, |z| {
@@ -82,48 +70,64 @@ pub fn convert(bytes: &[u8], fallback: &str, max_rows: usize) -> Result<Out> {
         .collect();
     let mut md = String::new();
     let mut omitted: Vec<String> = Vec::new();
+    let mut shapes: Vec<Shape> = Vec::new();
     for (name, hidden) in sheets {
         let Ok(range) = wb.worksheet_range(&name) else {
             continue;
         };
-        let mut rows = range.rows();
-        let Some(header) = rows.next() else { continue };
         let width = range.width();
-        let total = range.height().saturating_sub(1);
-        let kept = total.min(max_rows);
-        let mut cols: Vec<Column> = (0..width)
-            .map(|i| {
-                let h = header.get(i).map(cell_text).unwrap_or_default();
-                Column::new(
-                    if h.trim().is_empty() {
-                        format!("col {}", i + 1)
-                    } else {
-                        h
-                    },
-                    "Column",
-                )
-            })
-            .collect();
+        let text = |r: &[Data]| -> Vec<String> {
+            (0..width)
+                .map(|i| r.get(i).map(cell_text).unwrap_or_default())
+                .collect()
+        };
+        let first: Vec<Vec<String>> = range.rows().take(11).map(text).collect();
+        if first.is_empty() {
+            continue;
+        }
+        let mut shape = Shape::new(name.clone(), width);
+        shape.hidden = hidden;
+        // Rows above a header row (titles, notes) stay in the body as text.
+        let header_at = tables::find_header(&first, width);
+        let start = header_at.map_or(0, |k| k + 1);
+        let mut body = String::new();
+        for r in &first[..header_at.unwrap_or(0)] {
+            let line: Vec<&str> = r
+                .iter()
+                .map(|c| c.trim())
+                .filter(|c| !c.is_empty())
+                .collect();
+            if !line.is_empty() {
+                body.push_str(&format!("{}\n\n", line.join(" · ")));
+            }
+        }
+        let header = match header_at {
+            Some(k) => {
+                let names = tables::names(&first[k]);
+                shape.columns = Some(names.clone());
+                names
+            }
+            None => tables::by_position(width),
+        };
+        shape.rows = range.height().saturating_sub(start);
+        shape.kept = shape.rows.min(max_rows);
         let mut table = format!(
             "| {} |\n|{}\n",
-            cols.iter()
-                .map(|c| c.name.replace('|', "\\|"))
+            header
+                .iter()
+                .map(|c| c.replace('|', "\\|"))
                 .collect::<Vec<_>>()
                 .join(" | "),
             " --- |".repeat(width)
         );
-        for row in rows.take(kept) {
-            for (i, col) in cols.iter_mut().enumerate() {
-                if let Some(c) = row.get(i) {
-                    add_cell(col, c);
-                }
-            }
-            table.push_str(&format!(
-                "| {} |\n",
-                (0..width)
-                    .map(|i| row.get(i).map(cell_text).unwrap_or_default())
-                    .collect::<Vec<_>>()
-                    .join(" | ")
+        for row in range.rows().skip(start).take(shape.kept) {
+            table.push_str(&format!("| {} |\n", text(row).join(" | ")));
+        }
+        if shape.kept < shape.rows {
+            omitted.push(format!(
+                "{} rows of sheet \"{name}\" beyond the {}-row limit",
+                group(&(shape.rows - shape.kept).to_string()),
+                group(&max_rows.to_string())
             ));
         }
         let label = if hidden {
@@ -131,34 +135,8 @@ pub fn convert(bytes: &[u8], fallback: &str, max_rows: usize) -> Result<Out> {
         } else {
             name.clone()
         };
-        md.push_str(&format!("## Sheet: {label}\n\n"));
-        md.push_str(&format!(
-            "Sheet \"{name}\" has {} row{} and {width} column{}",
-            group(&total.to_string()),
-            if total == 1 { "" } else { "s" },
-            if width == 1 { "" } else { "s" }
-        ));
-        if kept < total {
-            md.push_str(&format!(
-                "; the first {} are included below and in the statistics",
-                group(&kept.to_string())
-            ));
-            omitted.push(format!(
-                "{} rows of sheet \"{name}\" beyond the {}-row limit",
-                group(&(total - kept).to_string()),
-                group(&max_rows.to_string())
-            ));
-        }
-        md.push_str(".\n\n");
-        if hidden {
-            md.push_str(&format!("Sheet \"{name}\" is hidden in the workbook.\n\n"));
-        }
-        for c in &cols {
-            md.push_str(&format!("- {}\n", c.describe(kept)));
-        }
-        md.push('\n');
-        md.push_str(&table);
-        md.push('\n');
+        md.push_str(&format!("## Sheet: {label}\n\n{body}{table}\n"));
+        shapes.push(shape);
     }
     if md.is_empty() {
         anyhow::bail!("spreadsheet has no data");
@@ -177,7 +155,10 @@ pub fn convert(bytes: &[u8], fallback: &str, max_rows: usize) -> Result<Out> {
             if images == 1 { "" } else { "s" }
         ));
     }
-    let mut out = Out::new(fallback, md);
+    // The summary describes the structure only: sheets, sizes and column names.
+    let mut out = Out::new(fallback, md)
+        .with_summary(tables::summary("Spreadsheet", &shapes))
+        .with_description(Some(tables::description("Spreadsheet", &shapes)));
     out.omitted = omitted;
     Ok(out)
 }

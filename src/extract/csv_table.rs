@@ -1,5 +1,6 @@
 use super::Out;
-use crate::profile::{Column, group};
+use super::tables::{self, Shape};
+use crate::profile::group;
 use anyhow::{Context, Result};
 use std::io::Read;
 use std::path::Path;
@@ -49,54 +50,54 @@ pub fn convert_reader(
     if width == 0 {
         return Ok(out);
     }
-    let mut md = String::new();
-    if rows.len() > 1 {
-        let n = rows.len() - 1;
-        if more {
-            md.push_str(&format!(
-                "Table \"{fallback}\" has more than {} rows and {width} columns; the first {} are included below and in the statistics.\n\n",
-                group(&n.to_string()),
-                group(&n.to_string())
-            ));
-            out = out.omitting(format!(
-                "rows after the first {} (limit set with --max-rows)",
-                group(&n.to_string())
-            ));
-        } else {
-            md.push_str(&format!(
-                "Table \"{fallback}\" has {} rows and {width} columns.\n\n",
-                group(&n.to_string())
-            ));
-        }
-        for c in 0..width {
-            let name = rows[0]
-                .get(c)
-                .filter(|h| !h.trim().is_empty())
-                .cloned()
-                .unwrap_or_else(|| format!("col {}", c + 1));
-            let mut col = Column::new(name, "Column");
-            for row in &rows[1..] {
-                if let Some(cell) = row.get(c) {
-                    col.add_raw(cell);
-                }
-            }
-            md.push_str(&format!("- {}\n", col.describe(n)));
-        }
-        md.push('\n');
+    // The summary describes the structure only: size and column names, never the values.
+    for r in rows.iter_mut() {
+        r.resize(width, String::new());
     }
-    for (i, row) in rows.iter().enumerate() {
-        md.push('|');
-        for c in 0..width {
-            md.push(' ');
-            md.push_str(row.get(c).map(String::as_str).unwrap_or(""));
-            md.push_str(" |");
+    let header_at = tables::find_header(&rows[..rows.len().min(11)], width);
+    let start = header_at.map_or(0, |k| k + 1);
+    let mut shape = Shape::new(fallback.to_string(), width);
+    shape.columns = header_at.map(|k| tables::names(&rows[k]));
+    shape.rows = rows.len() - start;
+    shape.kept = shape.rows;
+    shape.more = more;
+    if more {
+        out = out.omitting(format!(
+            "rows after the first {} (limit set with --max-rows)",
+            group(&shape.rows.to_string())
+        ));
+    }
+    let kind = match delimiter {
+        b'\t' => "TSV file",
+        _ => "CSV file",
+    };
+    let shapes = [shape];
+    out = out
+        .with_summary(tables::summary(kind, &shapes))
+        .with_description(Some(tables::description(kind, &shapes)));
+    let mut md = String::new();
+    // Rows above a header row (titles, notes) stay in the body as text.
+    for r in &rows[..header_at.unwrap_or(0)] {
+        let line: Vec<&str> = r
+            .iter()
+            .map(|c| c.trim())
+            .filter(|c| !c.is_empty())
+            .collect();
+        if !line.is_empty() {
+            md.push_str(&format!("{}\n\n", line.join(" · ")));
         }
-        md.push('\n');
-        if i == 0 {
-            md.push('|');
-            md.push_str(&" --- |".repeat(width));
-            md.push('\n');
-        }
+    }
+    let header = match header_at {
+        Some(k) => rows[k].clone(),
+        None => tables::by_position(width),
+    };
+    md.push_str(&format!(
+        "| {} |\n|{}\n",
+        header.join(" | "),
+        " --- |".repeat(width)
+    ));
+    for row in &rows[start..] {
+        md.push_str(&format!("| {} |\n", row.join(" | ")));
     }
     out.markdown = md;
     Ok(out)
@@ -123,7 +124,13 @@ mod tests {
             "{}",
             out.markdown
         );
-        assert!(out.markdown.contains("Column \"b\" is numeric"));
+        // Structure only: no statistics about the values anywhere.
+        assert!(!out.markdown.contains("numeric"), "{}", out.markdown);
+        assert_eq!(
+            out.description.as_deref(),
+            Some("CSV file, 1 row × 2 columns; columns a, b.")
+        );
+        assert!(out.summary.unwrap().contains("Columns: `a`, `b`"));
         assert!(out.omitted.is_empty());
     }
 
@@ -140,7 +147,7 @@ mod tests {
             "{}",
             out.markdown
         );
-        assert!(out.markdown.contains("more than 2 rows"));
+        assert!(out.summary.unwrap().contains("more than 2 rows"));
         assert!(out.omitted[0].contains("rows after the first 2"));
     }
 }

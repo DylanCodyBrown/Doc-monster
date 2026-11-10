@@ -525,3 +525,44 @@ fn files_reached_through_a_link_are_eaten() {
     let (ok, log) = run(&["feed", d.join("links").to_str().unwrap(), "-q"]);
     assert!(ok && d.join("links/pets.md").exists(), "{log}");
 }
+
+#[test]
+fn spreadsheets_and_csv_files_are_described_by_structure_never_by_their_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::write(
+        d.join("sales.csv"),
+        "Name,Region,Revenue\nAcme,North,1200\nGlobex,South,900\n",
+    )
+    .unwrap();
+    let (ok, log) = run(&["feed", d.join("sales.csv").to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("sales.md")).unwrap();
+    assert!(
+        md.contains(
+            "description: \"CSV file, 2 rows × 3 columns; columns Name, Region, Revenue.\""
+        ),
+        "{md}"
+    );
+    let summary = &md[md.find("## Summary").unwrap()..md.find("## Full content").unwrap()];
+    assert!(summary.contains("Columns: `Name`, `Region`, `Revenue`"), "{summary}");
+    for value in ["Acme", "1200", "900", "average", "most common"] {
+        assert!(!summary.contains(value), "{value} in {summary}");
+    }
+    // The table itself is still in the body.
+    assert!(md.contains("| Acme | North | 1200 |"), "{md}");
+
+    // Compressed past the level that keeps tables: no empty body, and it says why.
+    let (ok, log) = run(&[
+        "feed",
+        d.join("sales.csv").to_str().unwrap(),
+        "-q",
+        "-c",
+        "5",
+        "--overwrite",
+    ]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("sales.md")).unwrap();
+    assert!(!md.contains("## Compressed content"), "{md}");
+    assert!(md.contains("the document body: its table"), "{md}");
+}

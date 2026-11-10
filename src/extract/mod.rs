@@ -9,6 +9,7 @@ mod pdf;
 mod rtf;
 mod screen;
 mod subtitles;
+mod tables;
 mod text;
 mod video;
 mod xlsx;

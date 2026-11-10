@@ -165,6 +165,12 @@ Speech itself is not transcribed; without subtitles the output says so.
 Data files get a plain-English description of their shape instead ("`players` is a list of 500
 items; `coins` ranges from 42 to 9,998").
 
+Spreadsheets and CSV files are summarised by their **structure only**, never their values: each
+sheet's size and its column names ("Spreadsheet with 2 sheets: "Revenue" (3 rows × 4 columns;
+columns Name, Region, Revenue, Q1)"). Title rows above the header are found and kept as text, and
+a sheet whose first row is already data is reported as having no header row rather than having its
+values called column names. The tables themselves follow in full.
+
 ## How compressed: `--compress 1` to `10`
 
 | Level | You get |

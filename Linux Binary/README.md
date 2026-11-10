@@ -27,8 +27,8 @@ chmod +x doc-monster
 | --- | --- |
 | Doc Monster | `doc-monster 0.1.0`, built from this repository with `--features bundled-tools` |
 | Compiler | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
-| Size | 17,814,848 bytes |
-| SHA-256 | `10d82a48ba6b3f7b1f998ff62511c4f8e61da79842d09e61479c6b7bf3360475` |
+| Size | 17,827,136 bytes |
+| SHA-256 | `4c26216af5aaede7e09923b778db96157f9a1371ae5ee325679f0ea6cc7ed7bb` |
 
 Built in:
 
@@ -60,7 +60,7 @@ doc-monster 0.1.0
 
 - Converting a small HTML page with `-c 6` wrote the expected Markdown with front matter.
 - `regurgitate --keep-duplicates` on two Markdown files wrote an `INDEX.md` listing both.
-- The test suite passed on this target with the tools built in: 88 tests, 0 failures.
+- The test suite passed on this target with the tools built in: 92 tests, 0 failures.
 - With the `PATH` emptied, so no system FFmpeg or Tesseract could be found, the test slides video
   converted to the same Markdown as a build using the system's tools.
 - A 10-minute 720p video: 598 screen changes found, 467 read, in 20.5 seconds (21.8 seconds with

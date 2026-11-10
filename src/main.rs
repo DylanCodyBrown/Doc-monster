@@ -631,27 +631,24 @@ fn process(
         10 => Some(doc.markdown.clone()),
         _ => {
             let c = digest::compress(&doc.markdown, level);
-            if c.words_after < c.words_before && c.words_before > 0 {
-                let cut = 100 - (c.words_after * 100 / c.words_before);
+            // Nothing left but headings (a spreadsheet is only tables): leave the body out.
+            let only_headings = c
+                .markdown
+                .lines()
+                .all(|l| l.trim().is_empty() || l.starts_with('#'));
+            if only_headings && summary.is_some() {
                 doc.omitted.push(format!(
-                    "about {cut}% of the words (compression {level} of 10)"
+                    "the document body: its {} (compression {level} of 10 keeps tables up to level 3)",
+                    if c.tables_dropped == 1 {
+                        "table".to_string()
+                    } else {
+                        format!("{} tables", c.tables_dropped)
+                    }
                 ));
+                None
+            } else {
+                Some(compressed_body(&mut doc, c, level))
             }
-            if c.tables_dropped > 0 {
-                doc.omitted.push(format!(
-                    "{} table{}",
-                    c.tables_dropped,
-                    if c.tables_dropped == 1 { "" } else { "s" }
-                ));
-            }
-            if c.code_dropped > 0 {
-                doc.omitted.push(format!(
-                    "{} code block{}",
-                    c.code_dropped,
-                    if c.code_dropped == 1 { "" } else { "s" }
-                ));
-            }
-            Some(c.markdown)
         }
     };
     if level == 10 && body.is_none() {
@@ -668,4 +665,29 @@ fn process(
 
     std::fs::write(out, rendered).with_context(|| format!("writing {}", out.display()))?;
     Ok((out.to_path_buf(), summary.is_some()))
+}
+
+/// The shortened body, noting in the document what was cut.
+fn compressed_body(doc: &mut doc_monster::Document, c: digest::Compressed, level: u8) -> String {
+    if c.words_after < c.words_before && c.words_before > 0 {
+        let cut = 100 - (c.words_after * 100 / c.words_before);
+        doc.omitted.push(format!(
+            "about {cut}% of the words (compression {level} of 10)"
+        ));
+    }
+    if c.tables_dropped > 0 {
+        doc.omitted.push(format!(
+            "{} table{}",
+            c.tables_dropped,
+            if c.tables_dropped == 1 { "" } else { "s" }
+        ));
+    }
+    if c.code_dropped > 0 {
+        doc.omitted.push(format!(
+            "{} code block{}",
+            c.code_dropped,
+            if c.code_dropped == 1 { "" } else { "s" }
+        ));
+    }
+    c.markdown
 }
