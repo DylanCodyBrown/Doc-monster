@@ -12,13 +12,15 @@ Needs 64-bit Windows 10 (version 1809) or later, or Windows 11, on an Intel or A
 on your `PATH`.
 
 ```powershell
-uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.1.0/doc_monster-0.1.0-py3-none-win_amd64.whl
+uv tool install doc-monster
 doc-monster --version
 ```
 
 If `doc-monster` is not found afterwards, run `uv tool update-shell` once and open a new terminal.
+Until the first version is on PyPI, install from the release link instead:
+`uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.1.0/doc_monster-0.1.0-py3-none-win_amd64.whl`.
 
-- **Update:** run the install command again with the newer version's link, adding `--force`.
+- **Update:** `uv tool upgrade doc-monster`.
 - **Remove:** `uv tool uninstall doc-monster`.
 
 ## Install with winget
@@ -82,6 +84,21 @@ run `doc-monster.exe`. You can also drag files onto it in File Explorer.
 5. **Releases:** each version gets a release `v<version>` once, which never changes afterwards
    because winget checks the zip's fingerprint. Every push also refreshes the `windows-latest`
    pre-release with the newest build. To publish a new version, raise `version` in `Cargo.toml`.
+
+### PyPI
+
+[`.github/workflows/pypi.yml`](../.github/workflows/pypi.yml) uploads the Windows and Linux wheels
+to [PyPI](https://pypi.org/project/doc-monster/) whenever `main` has a version that is not there
+yet, which is what makes `uv tool install doc-monster` work. It uses PyPI's trusted publishing, so
+no password or token is stored. One-time setup on pypi.org (free account, two minutes):
+
+1. Sign in, open **Your account → Publishing → Add a new pending publisher → GitHub**.
+2. Fill in: PyPI project name `doc-monster`, owner `DylanCodyBrown`, repository `Doc-monster`,
+   workflow name `pypi.yml`, environment name `pypi`.
+3. Run the **PyPI** workflow once from the Actions tab (or push to `main`). The first upload
+   creates the project.
+
+### winget
 
 The manifest templates are in [`winget/`](winget). To list Doc Monster in the public winget
 catalogue, submit them to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) once

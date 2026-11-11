@@ -13,16 +13,17 @@ These have FFmpeg and Tesseract built in, so videos work too, and you do not nee
 [Windows/README.md](Windows/README.md)):
 
 ```powershell
-uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.1.0/doc_monster-0.1.0-py3-none-win_amd64.whl
+uv tool install doc-monster
 # or, once listed in the winget catalogue:
 winget install DylanCodyBrown.DocMonster
 ```
 
-**Linux**, with uv, or by downloading one file
-([details](<Linux Binary/README.md>)):
+`pipx install doc-monster` and `pip install doc-monster` work too.
+
+**Linux**, with uv, or by downloading one file ([details](<Linux Binary/README.md>)):
 
 ```bash
-uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/linux-latest/doc_monster-0.1.0-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl
+uv tool install doc-monster
 # or:
 curl -LO https://github.com/DylanCodyBrown/Doc-monster/releases/download/linux-latest/doc-monster
 chmod +x doc-monster

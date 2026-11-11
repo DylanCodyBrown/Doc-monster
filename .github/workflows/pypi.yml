@@ -1,0 +1,134 @@
+# Publishes Doc Monster to PyPI, so anyone can run:  uv tool install doc-monster
+# (or pipx install doc-monster, or pip install doc-monster). The wheels carry the program with
+# FFmpeg and Tesseract inside, for Windows and Linux.
+#
+# Runs after every push to main, but only builds and uploads when the version in Cargo.toml is
+# not on PyPI yet: raise the version to publish. Uses PyPI trusted publishing (no password or
+# token is stored): on pypi.org, the project "doc-monster" trusts this repository's pypi.yml
+# workflow in the "pypi" environment. See Windows/README.md.
+name: PyPI
+
+on:
+  push:
+    branches: [main, ccr-e274588c-aeoqh7]  # TEMP: testing on this branch
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/doc-monster/$version/json")
+          if [ "$code" = 404 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "doc-monster $version is not on PyPI yet: building and publishing it."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "doc-monster $version is already on PyPI (HTTP $code): nothing to do. Raise the version in Cargo.toml to publish."
+          fi
+
+  linux:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake nasm musl-tools python3-pip
+      # The same saved tools as linux-binary.yml, when present.
+      - uses: actions/cache@v4
+        with:
+          path: target/bundled-tools
+          key: bundled-tools-linux-${{ hashFiles('scripts/build-tools.sh') }}
+      - run: bash scripts/build-tools.sh linux
+      - name: Build the wheel
+        env:
+          DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/linux/tools
+        run: |
+          python3 -m pip install --quiet --user maturin || python3 -m pip install --quiet --user --break-system-packages maturin
+          ~/.local/bin/maturin build --release --locked --target x86_64-unknown-linux-musl --features bundled-tools --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux
+          path: dist/*.whl
+
+  windows-tools:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake nasm llvm-18 python3-pip
+      # The same saved tools as windows.yml, when present.
+      - uses: actions/cache@v4
+        with:
+          path: target/bundled-tools
+          key: bundled-tools-windows-${{ hashFiles('scripts/build-tools.sh') }}
+      - run: bash scripts/build-tools.sh windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-tools-pypi
+          path: target/bundled-tools/windows/tools/
+          retention-days: 1
+
+  windows:
+    needs: windows-tools
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DOC_MONSTER_TOOLS: ${{ github.workspace }}\tools
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-tools-pypi
+          path: tools
+      - name: Build the wheel
+        shell: pwsh
+        run: |
+          python -m pip install --quiet maturin
+          maturin build --release --locked --features bundled-tools --out dist
+          .\target\release\doc-monster.exe --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-windows
+          path: dist/*.whl
+
+  publish:
+    needs: [check, linux, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/doc-monster/${{ needs.check.outputs.version }}/
+    permissions:
+      id-token: write   # trusted publishing: PyPI checks this workflow's identity, no token needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - run: ls -la dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
