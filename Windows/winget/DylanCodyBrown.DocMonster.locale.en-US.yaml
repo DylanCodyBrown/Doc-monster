@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
 # winget description manifest. {VERSION} is filled in by .github/workflows/windows.yml.
 PackageIdentifier: DylanCodyBrown.DocMonster
 PackageVersion: {VERSION}

@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
 # winget installer manifest: a zip holding one portable program, put on the PATH as
 # "doc-monster". {VERSION} and {SHA256} are filled in by .github/workflows/windows.yml.
 PackageIdentifier: DylanCodyBrown.DocMonster
