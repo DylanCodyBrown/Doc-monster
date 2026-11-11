@@ -10,7 +10,7 @@ name: PyPI
 
 on:
   push:
-    branches: [main, ccr-e274588c-aeoqh7]  # TEMP: testing on this branch
+    branches: [main]
   workflow_dispatch:
 
 permissions:
