@@ -87,14 +87,14 @@ run `doc-monster.exe`. You can also drag files onto it in File Explorer.
 
 ### PyPI
 
-[`.github/workflows/pypi.yml`](../.github/workflows/pypi.yml) uploads the Windows and Linux wheels
+[`.github/workflows/pypi.yaml`](../.github/workflows/pypi.yaml) uploads the Windows and Linux wheels
 to [PyPI](https://pypi.org/project/doc-monster/) whenever `main` has a version that is not there
 yet, which is what makes `uv tool install doc-monster` work. It uses PyPI's trusted publishing, so
 no password or token is stored. One-time setup on pypi.org (free account, two minutes):
 
 1. Sign in, open **Your account → Publishing → Add a new pending publisher → GitHub**.
 2. Fill in: PyPI project name `doc-monster`, owner `DylanCodyBrown`, repository `Doc-monster`,
-   workflow name `pypi.yml`, environment name `pypi`.
+   workflow name `pypi.yaml`, environment name `pypi`.
 3. Run the **PyPI** workflow once from the Actions tab (or push to `main`). The first upload
    creates the project.
 

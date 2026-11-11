@@ -4,7 +4,7 @@
 #
 # Runs after every push to main, but only builds and uploads when the version in Cargo.toml is
 # not on PyPI yet: raise the version to publish. Uses PyPI trusted publishing (no password or
-# token is stored): on pypi.org, the project "doc-monster" trusts this repository's pypi.yml
+# token is stored): on pypi.org, the project "doc-monster" trusts this repository's pypi.yaml
 # workflow in the "pypi" environment. See Windows/README.md.
 name: PyPI
 
