@@ -18,7 +18,7 @@ doc-monster --version
 
 If `doc-monster` is not found afterwards, run `uv tool update-shell` once and open a new terminal.
 Until the first version is on PyPI, install from the release link instead:
-`uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.1.0/doc_monster-0.1.0-py3-none-win_amd64.whl`.
+`uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.2.0/doc_monster-0.2.0-py3-none-win_amd64.whl`.
 
 - **Update:** `uv tool upgrade doc-monster`.
 - **Remove:** `uv tool uninstall doc-monster`.

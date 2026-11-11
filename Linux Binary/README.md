@@ -9,6 +9,7 @@ chmod +x doc-monster
 ./doc-monster --version
 ./doc-monster feed report.docx
 ./doc-monster feed talk.mp4          # on-screen text and subtitles, no FFmpeg install needed
+./doc-monster feed sign.png          # the text in a picture
 ```
 
 ## What it targets
@@ -25,10 +26,10 @@ chmod +x doc-monster
 
 | | |
 | --- | --- |
-| Doc Monster | `doc-monster 0.1.0`, built from this repository with `--features bundled-tools` |
+| Doc Monster | `doc-monster 0.2.0`, built from this repository with `--features bundled-tools` |
 | Compiler | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
-| Size | 17,835,328 bytes |
-| SHA-256 | `570b783160ec7f4563e29201297fef3e589212d42b12dc130991edffa2a3c1df` |
+| Size | 18,044,224 bytes |
+| SHA-256 | `40d1797f8a94c94fcdb049a1b36b327eb8f1ff54472dae4d8a783f10153c0f34` |
 
 Built in:
 
@@ -37,6 +38,7 @@ Built in:
 | FFmpeg and ffprobe | 7.1.1 | `db69d06eeeab4f46da15030a80d539efb4503ca8` | GPL 2.0 or later |
 | Tesseract | 5.5.1 | `3b7c70e34dea179549ed3e995872e2e019eb8477` | Apache 2.0 |
 | Leptonica (Tesseract's image library) | 1.85.0 | `63aef18d98432b8582a1565e241f7bd2ee9cc8d9` | BSD 2-clause |
+| zlib (lets FFmpeg read PNG pictures) | 1.3.1 | tag `v1.3.1` | zlib license |
 | English text model (`tessdata_fast`) | 4.1.0 | SHA-256 `7d4322bd…556427170b2` | Apache 2.0 |
 
 Check your copy matches:
@@ -55,12 +57,12 @@ $ ldd doc-monster
 statically linked
 
 $ doc-monster --version
-doc-monster 0.1.0
+doc-monster 0.2.0
 ```
 
 - Converting a small HTML page with `-c 6` wrote the expected Markdown with front matter.
 - `regurgitate --keep-duplicates` on two Markdown files wrote an `INDEX.md` listing both.
-- The test suite passed on this target with the tools built in: 95 tests, 0 failures.
+- The test suite passed on this target with the tools built in: 98 tests, 0 failures.
 - With the `PATH` emptied, so no system FFmpeg or Tesseract could be found, the test slides video
   converted to the same Markdown as a build using the system's tools.
 - A 10-minute 720p video: 598 screen changes found, 467 read, in 20.5 seconds (21.8 seconds with

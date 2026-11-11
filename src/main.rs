@@ -100,7 +100,8 @@ struct Args {
     /// Most rows read per spreadsheet sheet or CSV file.
     #[arg(long, default_value_t = 5000)]
     max_rows: usize,
-    /// Language of on-screen text, as Tesseract codes: eng, spa, deu, or several like eng+spa.
+    /// Language of text in videos and pictures, as Tesseract codes: eng, spa, deu, or several
+    /// like eng+spa.
     #[arg(long, default_value = "eng")]
     screen_lang: String,
     /// Read on-screen text in at most this many video frames (default: every frame where the
@@ -135,6 +136,9 @@ struct Outcome {
     /// True when a summary was written (front matter says "Condensed").
     condensed: bool,
     error: Option<String>,
+    /// Left alone on purpose, not a failure (a picture with no text in it).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    skipped: bool,
 }
 
 #[derive(Serialize)]
@@ -143,9 +147,16 @@ struct Report {
     failed: usize,
     /// Earlier Doc Monster outputs found among the inputs and left alone.
     skipped: usize,
+    /// Pictures with no readable text, left alone.
+    #[serde(skip_serializing_if = "is_zero")]
+    without_text: usize,
     results: Vec<Outcome>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     indexes: Vec<Indexed>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 fn main() {
@@ -381,6 +392,7 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
             ok: false,
             condensed: false,
             error: Some("not found".into()),
+            skipped: false,
         })
         .collect();
     for p in &found.missing {
@@ -432,6 +444,20 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
                     ok: true,
                     condensed,
                     error: None,
+                    skipped: false,
+                }
+            }
+            Err(e) if e.downcast_ref::<extract::Skipped>().is_some() => {
+                if !args.json && !args.quiet {
+                    ui.skipped(path, &format!("{e:#}"));
+                }
+                Outcome {
+                    source: path.display().to_string(),
+                    output: None,
+                    ok: false,
+                    condensed: false,
+                    error: Some(format!("{e:#}")),
+                    skipped: true,
                 }
             }
             Err(e) => {
@@ -444,13 +470,15 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
                     ok: false,
                     condensed: false,
                     error: Some(format!("{e:#}")),
+                    skipped: false,
                 }
             }
         });
     }
 
     let converted = results.iter().filter(|r| r.ok).count();
-    let failed = results.len() - converted;
+    let without_text = results.iter().filter(|r| r.skipped).count();
+    let failed = results.len() - converted - without_text;
     // With --index, each folder given (or the --out folder) gets its INDEX.md afterwards.
     let indexes = if args.index {
         let folders: Vec<PathBuf> = match &args.out {
@@ -466,12 +494,19 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
             converted,
             failed,
             skipped: found.skipped,
+            without_text,
             results,
             indexes,
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        ui.done(converted, failed, found.skipped, started.elapsed());
+        ui.done(
+            converted,
+            failed,
+            found.skipped,
+            without_text,
+            started.elapsed(),
+        );
     }
     Ok(Batch {
         code: if failed > 0 { 1 } else { 0 },

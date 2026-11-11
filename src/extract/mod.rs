@@ -3,6 +3,7 @@ mod data;
 mod doc;
 mod docx;
 mod html;
+mod image;
 mod markup;
 mod odf;
 mod pdf;
@@ -40,6 +41,8 @@ pub enum Format {
     Pdf,
     Xlsx,
     Video,
+    /// Pictures: the text in them is read with Tesseract.
+    Image,
     Subtitles,
     /// Source code and logs. Wrapped in a code fence so they are never reflowed.
     Code,
@@ -61,11 +64,17 @@ impl Format {
             Format::Pdf => "pdf",
             Format::Xlsx => "spreadsheet",
             Format::Video => "video",
+            Format::Image => "image",
             Format::Subtitles => "subtitles",
             Format::Code => "code",
         }
     }
 }
+
+/// A file left alone on purpose, not a failure: for example a picture with no text in it.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct Skipped(pub String);
 
 /// Reading limits.
 #[derive(Debug, Clone)]
@@ -285,6 +294,9 @@ pub fn detect(path: &Path, head: &[u8]) -> Result<Format> {
         "xlsx" | "xlsm" | "xls" | "xlsb" | "ods" | "xltx" => Some(Format::Xlsx),
         "mp4" | "m4v" | "mov" | "mkv" | "webm" | "avi" | "wmv" | "flv" | "mpg" | "mpeg" | "ogv"
         | "3gp" | "m2ts" | "mts" | "vob" | "qt" => Some(Format::Video),
+        "png" | "jpg" | "jpeg" | "jpe" | "jfif" | "gif" | "bmp" | "tif" | "tiff" | "webp" => {
+            Some(Format::Image)
+        }
         "srt" | "vtt" => Some(Format::Subtitles),
         e if PLAIN.contains(&e) => Some(Format::PlainText),
         e if CODE.contains(&e) => Some(Format::Code),
@@ -314,6 +326,14 @@ pub fn detect(path: &Path, head: &[u8]) -> Result<Format> {
     }
     if head.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
         return Ok(Format::Video);
+    }
+    if head.starts_with(b"\x89PNG\r\n\x1a\n")
+        || head.starts_with(&[0xFF, 0xD8, 0xFF])
+        || head.starts_with(b"GIF87a")
+        || head.starts_with(b"GIF89a")
+        || (head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP")
+    {
+        return Ok(Format::Image);
     }
     if head.starts_with(b"PK\x03\x04") {
         bail!("zip-based file with unsupported extension '.{ext}'");
@@ -352,6 +372,8 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
     // Videos can be gigabytes: never read them whole.
     let out: Out = if format == Format::Video {
         video::convert(path, &fallback, opts)?
+    } else if format == Format::Image {
+        image::convert(path, &fallback, &opts.screen_lang)?
     } else if format == Format::Csv {
         // Streamed, so only the rows that are kept are ever read.
         csv_table::convert(path, &fallback, opts.max_rows)?
@@ -371,7 +393,7 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
             Format::Pdf => pdf::convert(&bytes, &fallback)?.into(),
             Format::Xlsx => xlsx::convert(&bytes, &fallback, opts.max_rows)?,
             Format::Subtitles => subtitles::convert(&bytes, &fallback)?.into(),
-            Format::Video | Format::Csv => unreachable!(),
+            Format::Video | Format::Image | Format::Csv => unreachable!(),
         }
     };
 

@@ -57,6 +57,11 @@ jobs:
           env -i HOME="$dir/home" PATH=/nonexistent "$B" feed "$dir/slides.mkv" --no-anim
           grep -q "On screen" "$dir/slides.md"
           grep -q "Aurora Dev Update" "$dir/slides.md"
+          # Pictures too: the built-in FFmpeg must open PNG and JPEG.
+          cp tests/fixtures/sign.png tests/fixtures/sign.jpg "$dir/"
+          env -i HOME="$dir/home" PATH=/nonexistent "$B" gorge "$dir/sign.png" "$dir/sign.jpg" --no-anim
+          grep -q "Aurora Pet Shop Notice" "$dir/sign.md"
+          grep -q "Aurora Pet Shop Notice" "$dir/sign.v2.md"
 
       - name: Build the wheel (uv)
         env:

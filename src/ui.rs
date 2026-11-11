@@ -24,6 +24,7 @@ struct Glyphs {
     fail: &'static str,
     arrow: &'static str,
     dot: &'static str,
+    skip: &'static str,
     prompt: &'static str,
     spin: &'static [&'static str],
 }
@@ -33,6 +34,7 @@ const FANCY: Glyphs = Glyphs {
     fail: "✗",
     arrow: "→",
     dot: "·",
+    skip: "–",
     prompt: "›",
     spin: &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
 };
@@ -42,6 +44,7 @@ const PLAIN: Glyphs = Glyphs {
     fail: "x",
     arrow: "->",
     dot: "-",
+    skip: "-",
     prompt: ">",
     spin: &["|", "/", "-", "\\"],
 };
@@ -164,6 +167,23 @@ impl Ui {
         );
     }
 
+    /// A file left alone on purpose (for example a picture with no text in it).
+    pub fn skipped(&self, source: &Path, why: &str) {
+        if !self.out {
+            println!("skip  {}: {why}", source.display());
+            return;
+        }
+        let name = source.file_name().map_or_else(
+            || source.display().to_string(),
+            |n| n.to_string_lossy().into(),
+        );
+        println!(
+            "  {} {}",
+            self.dim(self.glyphs.skip),
+            self.dim(&format!("{name}  {why}"))
+        );
+    }
+
     /// An index was written.
     pub fn indexed(&self, index: &Path, files: usize, unique: usize, extra: &str) {
         if !self.out {
@@ -182,14 +202,28 @@ impl Ui {
     }
 
     /// The closing line of a batch.
-    pub fn done(&self, converted: usize, failed: usize, skipped: usize, took: Duration) {
+    /// `earlier`: Doc Monster's own earlier outputs left alone; `no_text`: pictures without text.
+    pub fn done(
+        &self,
+        converted: usize,
+        failed: usize,
+        earlier: usize,
+        no_text: usize,
+        took: Duration,
+    ) {
+        let mut notes = Vec::new();
+        if earlier > 0 {
+            notes.push(format!("{earlier} earlier outputs skipped"));
+        }
+        if no_text > 0 {
+            notes.push(format!(
+                "{no_text} picture{} without text skipped",
+                if no_text == 1 { "" } else { "s" }
+            ));
+        }
         if !self.out {
-            let skipped = if skipped > 0 {
-                format!(", {skipped} earlier outputs skipped")
-            } else {
-                String::new()
-            };
-            println!("done: {converted} converted, {failed} failed{skipped}");
+            let extra: String = notes.iter().map(|n| format!(", {n}")).collect();
+            println!("done: {converted} converted, {failed} failed{extra}");
             return;
         }
         let d = self.dim(self.glyphs.dot);
@@ -197,9 +231,7 @@ impl Ui {
         if failed > 0 {
             parts.push(self.red(&format!("{failed} failed")));
         }
-        if skipped > 0 {
-            parts.push(self.dim(&format!("{skipped} earlier outputs skipped")));
-        }
+        parts.extend(notes.iter().map(|n| self.dim(n)));
         parts.push(self.dim(&format!("{:.1}s", took.as_secs_f64())));
         println!("  {}", parts.join(&format!(" {d} ")));
     }

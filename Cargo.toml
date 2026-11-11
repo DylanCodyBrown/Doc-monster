@@ -1,6 +1,6 @@
 [package]
 name = "doc-monster"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Eats documents, writes clean Markdown with a notebook-style summary beside each one. Free, offline, no model."
 license = "MIT OR Apache-2.0"

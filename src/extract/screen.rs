@@ -83,7 +83,7 @@ pub fn missing_tools() -> Vec<&'static str> {
         .clone()
 }
 
-fn scratch_dir() -> PathBuf {
+pub(crate) fn scratch_dir() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     std::env::temp_dir().join(format!(
         "doc-monster-frames-{}-{}",
@@ -92,7 +92,7 @@ fn scratch_dir() -> PathBuf {
     ))
 }
 
-fn ocr(frame: &Path, lang: &str) -> String {
+pub(crate) fn ocr(frame: &Path, lang: &str) -> String {
     crate::tools::command("tesseract")
         .arg(frame)
         .args(["stdout", "-l", lang, "--psm", "3"])
@@ -124,35 +124,43 @@ fn real_words(line: &str) -> usize {
 
 /// Keep lines that read as text; turn misread bullets back into list markers.
 pub fn clean(text: &str) -> Vec<String> {
-    text.lines()
-        .map(|l| l.trim_end())
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| {
-            let t = l.trim();
-            let total = t.chars().count();
-            let sensible = t
-                .chars()
-                .filter(|c| {
-                    c.is_alphanumeric()
-                        || c.is_whitespace()
-                        || ".,:;!?'\"()[]{}<>/\\&%$#@+=_*-–—|~`^".contains(*c)
-                })
-                .count();
-            if total == 0 || sensible * 100 / total < 85 || real_words(t) == 0 {
-                return None;
-            }
-            let indent = &l[..l.len() - l.trim_start().len()];
-            Some(match bullet_junk().find(t) {
-                Some(m) if real_words(&t[m.end()..]) > 0 => format!("{indent}- {}", &t[m.end()..]),
-                _ => l.to_string(),
-            })
+    text.lines().filter_map(clean_line).collect()
+}
+
+/// One recognised line: None when it is noise (stray symbols, no real words), otherwise the
+/// line with a misread bullet symbol turned back into a list marker.
+pub(crate) fn clean_line(l: &str) -> Option<String> {
+    let l = l.trim_end();
+    let t = l.trim();
+    let total = t.chars().count();
+    if total == 0 {
+        return None;
+    }
+    let sensible = t
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric()
+                || c.is_whitespace()
+                || ".,:;!?'\"()[]{}<>/\\&%$#@+=_*-–—|~`^".contains(*c)
         })
-        .collect()
+        .count();
+    if sensible * 100 / total < 85 || real_words(t) == 0 {
+        return None;
+    }
+    let indent = &l[..l.len() - l.trim_start().len()];
+    Some(match bullet_junk().find(t) {
+        Some(m) if real_words(&t[m.end()..]) > 0 => format!("{indent}- {}", &t[m.end()..]),
+        _ => l.to_string(),
+    })
+}
+
+/// True when most lines look like source code (so they keep their line breaks).
+pub(crate) fn mostly_code(lines: &[String]) -> bool {
+    lines.iter().filter(|l| code_like().is_match(l)).count() * 2 >= lines.len()
 }
 
 fn to_block(lines: &[String]) -> String {
-    let code = lines.iter().filter(|l| code_like().is_match(l)).count() * 2 >= lines.len();
-    if code {
+    if mostly_code(lines) {
         format!("```\n{}\n```", lines.join("\n"))
     } else {
         lines

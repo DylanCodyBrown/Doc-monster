@@ -569,3 +569,53 @@ fn spreadsheets_and_csv_files_are_described_by_structure_never_by_their_values()
     assert!(!md.contains("## Compressed content"), "{md}");
     assert!(md.contains("the document body: its table"), "{md}");
 }
+
+#[test]
+fn text_in_pictures_is_read_and_pictures_without_text_are_skipped() {
+    if !has("ffmpeg") || !has("tesseract") {
+        eprintln!("skipped: FFmpeg or Tesseract not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    std::fs::copy(fixtures.join("sign.png"), d.join("sign.png")).unwrap();
+    std::fs::copy(fixtures.join("sign.jpg"), d.join("notice.jpg")).unwrap();
+    // A plain picture with no text in it.
+    let made = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=skyblue:s=200x120",
+        ])
+        .args(["-frames:v", "1"])
+        .arg(d.join("photo.png"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+
+    let (ok, log) = run(&["gorge", d.to_str().unwrap(), "--json"]);
+    assert!(ok, "a picture without text is not a failure: {log}");
+    let report: serde_json::Value = serde_json::from_str(&log).unwrap();
+    assert_eq!(report["converted"], 2, "{log}");
+    assert_eq!(report["failed"], 0, "{log}");
+    assert_eq!(report["without_text"], 1, "{log}");
+    assert!(!d.join("photo.md").exists(), "nothing is written for it");
+
+    for name in ["sign.md", "notice.md"] {
+        let md = std::fs::read_to_string(d.join(name)).unwrap();
+        assert!(
+            md.contains("title: \"Aurora Pet Shop Notice\""),
+            "{name}: {md}"
+        );
+        assert!(md.contains("# Aurora Pet Shop Notice"), "{name}: {md}");
+        assert!(
+            md.contains("Pets hatch from eggs bought with coins earned in the arena."),
+            "{name}: wrapped lines joined: {md}"
+        );
+        assert!(md.contains("the picture itself"), "{name}: {md}");
+    }
+}

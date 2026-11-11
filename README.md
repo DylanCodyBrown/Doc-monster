@@ -1,7 +1,7 @@
 # Doc Monster
 
 ```
-  Doc Monster 0.1.0                                   .-~~~-.
+  Doc Monster 0.2.0                                   .-~~~-.
   drop files or folders here, then press Enter       ( o   o )
   hungry. empty line quits                           (  \_/  )
   › report.docx                                       '~^~^~'
@@ -99,6 +99,7 @@ description: "Player data is saved to a DataStore every minute and again when th
 | Data | JSON (comments allowed), JSON Lines, YAML, TOML, XML, INI and `.env` |
 | Text | Markdown, plain text in any encoding, HTML, reStructuredText, AsciiDoc, Org, LaTeX, logs and code |
 | Video | `.mp4` `.mov` `.mkv` `.webm` `.avi` and more: on-screen text, subtitles, chapters, tags and tracks |
+| Pictures | `.png` `.jpg` `.gif` `.bmp` `.tif` `.webp`: the text in them, read with Tesseract (pictures without text are skipped) |
 | Other | PDF, `.srt` and `.vtt` subtitles |
 
 Footnotes, endnotes, comments, and page headers and footers are kept. Spreadsheet dates stay dates,
@@ -140,7 +141,7 @@ slide revisited, a repeated title card) reuses its text instead of being read ag
 details say how many changes there were and how many were actually read.
 
 Speed: a 10-minute 720p film takes about 30 seconds; slides and screen recordings, which change
-less often, are much faster. `--screen-lang spa` (or `eng+spa`) reads other languages.
+less often, are much faster. `--screen-lang spa` (or `eng+spa`) reads other languages, in videos and pictures.
 `--max-frames N` reads at most N frames; anything skipped that way is listed under Not included. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)), except with the
 [Linux binary](<Linux Binary/README.md>), which has them built in.
 Speech itself is not transcribed; without subtitles the output says so.
@@ -217,7 +218,7 @@ writes `INDEX.v2.md` instead and leaves yours alone.
 - **Scripts and agents:** `--json` prints a machine-readable report, exit codes are `0` / `1` / `2`,
   and the pet, colours and progress line only appear in an interactive terminal (`NO_COLOR` turns
   colours off).
-- **Not yet:** scanned pages and images (needs text recognition), PDF headings and tables, slide
+- **Not yet:** scanned PDF pages (pictures are read, scanned PDFs not yet), PDF headings and tables, slide
   decks (`.pptx`), e-books, speech in videos without subtitles, merged cells in legacy `.doc`
   tables.
 

@@ -80,6 +80,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "conversion failed" }
           $md = Get-Content "$dir\slides.md" -Raw
           if ($md -notmatch "On screen" -or $md -notmatch "Aurora Dev Update") { throw "no screen text read" }
+          # Pictures too: the built-in FFmpeg must open PNG and JPEG.
+          Copy-Item tests/fixtures/sign.png, tests/fixtures/sign.jpg $dir
+          .\doc-monster.exe gorge "$dir\sign.png" "$dir\sign.jpg" --no-anim
+          if ($LASTEXITCODE -ne 0) { throw "picture conversion failed" }
+          foreach ($f in "sign.md", "sign.v2.md") {
+            if ((Get-Content "$dir\$f" -Raw) -notmatch "Aurora Pet Shop Notice") { throw "no text read from $f" }
+          }
 
       - name: Check uv installs it onto the PATH
         shell: pwsh
