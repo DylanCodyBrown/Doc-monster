@@ -1,0 +1,16 @@
+# winget installer manifest: a zip holding one portable program, put on the PATH as
+# "doc-monster". {VERSION} and {SHA256} are filled in by .github/workflows/windows.yml.
+PackageIdentifier: DylanCodyBrown.DocMonster
+PackageVersion: {VERSION}
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: doc-monster.exe
+    PortableCommandAlias: doc-monster
+MinimumOSVersion: 10.0.17763.0
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/DylanCodyBrown/Doc-monster/releases/download/v{VERSION}/doc-monster-windows-x86_64.zip
+    InstallerSha256: {SHA256}
+ManifestType: installer
+ManifestVersion: 1.9.0

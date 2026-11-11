@@ -1,0 +1,152 @@
+# Builds Doc Monster for Windows with FFmpeg and Tesseract built in, after every push to main,
+# tests it on Windows, and publishes it ready for both installers:
+#   - uv:     doc_monster-<version>-py3-none-win_amd64.whl   (uv tool install <link>)
+#   - winget: doc-monster-windows-x86_64.zip + manifests     (winget install DylanCodyBrown.DocMonster)
+# Each version gets its own release, v<version>, made once and then left alone, because winget
+# checks the zip's fingerprint. Every push also refreshes the rolling "windows-latest" release.
+name: Windows
+
+on:
+  push:
+    branches: [main, ccr-e274588c-aeoqh7]  # TEMP: testing on this branch
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # FFmpeg, Leptonica and Tesseract for Windows, cross-compiled with Zig on Linux.
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake nasm llvm-18 python3-pip
+
+      - name: Reuse built tools
+        uses: actions/cache@v4
+        with:
+          path: target/bundled-tools
+          key: bundled-tools-windows-${{ hashFiles('scripts/build-tools.sh') }}
+
+      - name: Build
+        run: bash scripts/build-tools.sh windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-tools
+          path: target/bundled-tools/windows/tools/
+          retention-days: 1
+
+  build:
+    needs: tools
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      DOC_MONSTER_TOOLS: ${{ github.workspace }}\tools
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-tools
+          path: tools
+
+      - name: Test with the tools built in
+        run: cargo test --release --locked --features bundled-tools
+
+      - name: Build the wheel (uv) and the program
+        shell: pwsh
+        run: |
+          python -m pip install --quiet maturin uv
+          maturin build --release --locked --features bundled-tools --out dist
+          Copy-Item target/release/doc-monster.exe .
+
+      - name: Check it reads a video with nothing installed
+        shell: pwsh
+        run: |
+          $dir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\video"
+          Copy-Item tests/fixtures/slides.mkv $dir
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          .\doc-monster.exe feed "$dir\slides.mkv" --no-anim
+          if ($LASTEXITCODE -ne 0) { throw "conversion failed" }
+          $md = Get-Content "$dir\slides.md" -Raw
+          if ($md -notmatch "On screen" -or $md -notmatch "Aurora Dev Update") { throw "no screen text read" }
+
+      - name: Check uv installs it onto the PATH
+        shell: pwsh
+        run: |
+          $env:UV_TOOL_DIR = "$env:RUNNER_TEMP\uv-tools"
+          $env:UV_TOOL_BIN_DIR = "$env:RUNNER_TEMP\uv-bin"
+          uv tool install (Get-ChildItem dist\*.whl).FullName
+          & "$env:UV_TOOL_BIN_DIR\doc-monster.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "uv install failed" }
+
+      - name: Package the zip and fill in the winget manifests
+        id: pack
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          New-Item -ItemType Directory -Path pkg, pkg\licenses | Out-Null
+          Copy-Item doc-monster.exe, README.md, LICENSE-MIT, LICENSE-APACHE pkg\
+          Copy-Item "Linux Binary\licenses\*" pkg\licenses\
+          Compress-Archive -Path pkg\* -DestinationPath doc-monster-windows-x86_64.zip
+          $sha = (Get-FileHash doc-monster-windows-x86_64.zip -Algorithm SHA256).Hash
+          New-Item -ItemType Directory -Path winget | Out-Null
+          Get-ChildItem Windows\winget\*.yaml | ForEach-Object {
+            (Get-Content $_ -Raw).Replace('{VERSION}', $version).Replace('{SHA256}', $sha) |
+              Set-Content -NoNewline -Encoding utf8NoBOM "winget\$($_.Name)"
+          }
+          Compress-Archive -Path winget\* -DestinationPath winget-manifests.zip
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: Check the winget manifests
+        shell: pwsh
+        run: |
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget validate --manifest winget
+            if ($LASTEXITCODE -ne 0) { throw "winget manifests are not valid" }
+          } else {
+            Write-Host "winget is not on this machine; skipping its check"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: doc-monster-windows-x86_64
+          path: |
+            doc-monster-windows-x86_64.zip
+            dist/*.whl
+            winget-manifests.zip
+
+      - name: Publish
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pack.outputs.version }}
+          SHA: ${{ steps.pack.outputs.sha }}
+        run: |
+          files=(doc-monster-windows-x86_64.zip dist/*.whl winget-manifests.zip)
+          # The versioned release is made once; winget relies on its zip never changing.
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Doc Monster $VERSION" \
+              --notes "Windows: install with uv or winget, see Windows/README.md. Zip SHA-256 $SHA." "${files[@]}"
+          fi
+          git tag -f windows-latest
+          git push -f origin windows-latest
+          notes="Windows doc-monster with FFmpeg and Tesseract built in, from ${GITHUB_SHA::7}. Zip SHA-256 $SHA."
+          if gh release view windows-latest >/dev/null 2>&1; then
+            gh release edit windows-latest --prerelease --title "Windows (latest main)" --notes "$notes"
+          else
+            gh release create windows-latest --prerelease --title "Windows (latest main)" --notes "$notes"
+          fi
+          gh release upload windows-latest "${files[@]}" --clobber

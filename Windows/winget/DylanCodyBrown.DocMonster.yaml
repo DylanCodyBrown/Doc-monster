@@ -1,0 +1,6 @@
+# winget version manifest. {VERSION} is filled in by .github/workflows/windows.yml.
+PackageIdentifier: DylanCodyBrown.DocMonster
+PackageVersion: {VERSION}
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

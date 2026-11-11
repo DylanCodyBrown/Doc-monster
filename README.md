@@ -51,7 +51,8 @@ addresses. Drop several at once if you like; an empty line quits.
 On Windows you can also drag files straight onto `doc-monster.exe` (or a shortcut to it) in
 File Explorer; the window stays open until you press Enter so you can read the results.
 
-New to Rust? [INSTALL.md](INSTALL.md) has copy-paste commands for macOS, Linux and Windows
+**Windows:** `uv tool install` or `winget install`, with FFmpeg and Tesseract built in; see
+[Windows/README.md](Windows/README.md). New to Rust? [INSTALL.md](INSTALL.md) has copy-paste commands for macOS, Linux and Windows
 (bash, PowerShell and Command Prompt).
 
 ## What you get (shortened)

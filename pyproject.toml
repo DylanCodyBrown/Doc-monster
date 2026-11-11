@@ -1,0 +1,32 @@
+# Packages the doc-monster program as a Python wheel, so it installs with uv or pip:
+#
+#   uv tool install <wheel file or link>      (puts doc-monster on the PATH)
+#
+# There is no Python code: the wheel only carries the program. Release wheels are built by
+# .github/workflows/windows.yml with FFmpeg and Tesseract inside (--features bundled-tools).
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "doc-monster"
+description = "Eats documents, writes clean Markdown with a notebook-style summary beside each one. Free, offline, no model."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT OR Apache-2.0" }
+keywords = ["markdown", "summary", "docx", "ocr", "converter"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Rust",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/DylanCodyBrown/Doc-monster"
+
+[tool.maturin]
+bindings = "bin"
+strip = true

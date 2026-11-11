@@ -19,10 +19,10 @@ pub fn command(name: &str) -> Command {
 }
 
 fn program(name: &str) -> PathBuf {
-    if let Some(dir) = bundled::dir() {
-        return dir.join(name);
-    }
     let exe = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+    if let Some(dir) = bundled::dir() {
+        return dir.join(exe);
+    }
     if let Some(beside) = std::env::current_exe()
         .ok()
         .and_then(|e| Some(e.parent()?.join(&exe)))
@@ -65,6 +65,10 @@ mod bundled {
         if let Some(p) = std::env::var_os("DOC_MONSTER_CACHE") {
             v.push(PathBuf::from(p));
         }
+        // Windows: %LOCALAPPDATA%\doc-monster, the usual home for a program's own files.
+        if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+            v.push(PathBuf::from(p).join("doc-monster"));
+        }
         if let Some(p) = std::env::var_os("XDG_CACHE_HOME") {
             v.push(PathBuf::from(p).join("doc-monster"));
         }
@@ -100,7 +104,8 @@ mod bundled {
             std::fs::rename(&temp, &target)?;
         }
         // Some systems mount temporary folders so nothing in them can run; check it does.
-        let runs = std::process::Command::new(dir.join("ffprobe"))
+        let ffprobe = format!("ffprobe{}", std::env::consts::EXE_SUFFIX);
+        let runs = std::process::Command::new(dir.join(ffprobe))
             .arg("-version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

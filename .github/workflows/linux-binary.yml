@@ -6,7 +6,7 @@ name: Linux binary
 
 on:
   push:
-    branches: [main]
+    branches: [main, ccr-e274588c-aeoqh7]  # TEMP: testing on this branch
   workflow_dispatch:
 
 permissions:
@@ -37,14 +37,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/bundled-tools
-          key: bundled-tools-${{ runner.os }}-${{ hashFiles('Linux Binary/build.sh') }}
+          key: bundled-tools-linux-${{ hashFiles('scripts/build-tools.sh') }}
 
       - name: Build
         run: bash "Linux Binary/build.sh"
 
       - name: Test with the tools built in
         env:
-          DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/tools
+          DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/linux/tools
         run: cargo test --release --locked --target x86_64-unknown-linux-musl --features bundled-tools
 
       - name: Check it runs videos with nothing installed
@@ -57,6 +57,13 @@ jobs:
           env -i HOME="$dir/home" PATH=/nonexistent "$B" feed "$dir/slides.mkv" --no-anim
           grep -q "On screen" "$dir/slides.md"
           grep -q "Aurora Dev Update" "$dir/slides.md"
+
+      - name: Build the wheel (uv)
+        env:
+          DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/linux/tools
+        run: |
+          python3 -m pip install --quiet --user maturin || python3 -m pip install --quiet --user --break-system-packages maturin
+          ~/.local/bin/maturin build --release --locked --target x86_64-unknown-linux-musl --features bundled-tools --out dist
 
       - name: Fingerprint
         id: sum
@@ -73,6 +80,7 @@ jobs:
             Linux Binary/doc-monster.sha256
             Linux Binary/README.md
             Linux Binary/licenses/
+            dist/*.whl
 
       - name: Publish to the linux-latest pre-release
         if: github.ref == 'refs/heads/main'
@@ -87,4 +95,4 @@ jobs:
           else
             gh release create linux-latest --prerelease --title "Linux binary (latest main)" --notes "$notes"
           fi
-          gh release upload linux-latest "Linux Binary/doc-monster" "Linux Binary/doc-monster.sha256" --clobber
+          gh release upload linux-latest "Linux Binary/doc-monster" "Linux Binary/doc-monster.sha256" dist/*.whl --clobber

@@ -1,4 +1,5 @@
-# Builds Doc Monster on Windows, macOS and Linux, runs the tests there, and attaches the
+# Windows is built by windows.yml instead (with FFmpeg and Tesseract inside, for uv and winget).
+# Builds Doc Monster on macOS and Linux, runs the tests there, and attaches the
 # programs to a GitHub release. Runs when a version tag (v0.1.0, v0.2.0, ...) is pushed, when a
 # release is published on GitHub, or by hand from the Actions tab (programs are then kept as
 # downloads on that run).
@@ -27,9 +28,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: doc-monster-macos-arm64.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive: doc-monster-windows-x86_64.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

@@ -1,0 +1,27 @@
+# winget description manifest. {VERSION} is filled in by .github/workflows/windows.yml.
+PackageIdentifier: DylanCodyBrown.DocMonster
+PackageVersion: {VERSION}
+PackageLocale: en-US
+Publisher: DylanCodyBrown
+PublisherUrl: https://github.com/DylanCodyBrown
+PackageName: Doc Monster
+PackageUrl: https://github.com/DylanCodyBrown/Doc-monster
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/DylanCodyBrown/Doc-monster#license
+ShortDescription: Eats documents and writes clean Markdown with a notebook-style summary beside each one. Free and offline.
+Description: |-
+  Doc Monster converts Word files, spreadsheets, PDFs, data files, web pages, Markdown and videos
+  into clean Markdown with a hierarchical summary on top, using plain algorithms on your own
+  computer: no artificial intelligence service, no account, no internet. FFmpeg and Tesseract are
+  built in, so on-screen text in videos is read with nothing else to install.
+Moniker: doc-monster
+Tags:
+  - markdown
+  - converter
+  - summary
+  - docx
+  - ocr
+  - cli
+ReleaseNotesUrl: https://github.com/DylanCodyBrown/Doc-monster/releases/tag/v{VERSION}
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

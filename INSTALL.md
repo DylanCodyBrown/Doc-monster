@@ -1,22 +1,37 @@
 # Installing Doc Monster
 
-Four things, installed once, in this order: Rust (to build Doc Monster), FFmpeg (reads videos),
-Tesseract (reads the text shown on screen in videos), and Doc Monster itself. All are free and run
-on your machine.
+The quickest way is one command with FFmpeg and Tesseract already inside (first section). To
+build it yourself instead: four things, installed once, in this order: Rust (to build Doc
+Monster), FFmpeg (reads videos), Tesseract (reads the text shown on screen in videos), and Doc
+Monster itself. All are free and run on your machine.
 
-## Quickest: download a ready-made program
+## Quickest: one command, nothing else to install
 
-From the [Releases page](https://github.com/DylanCodyBrown/Doc-monster/releases), download the
-file for your computer (`doc-monster-windows-x86_64.zip`, `doc-monster-macos-arm64.tar.gz` or
-`doc-monster-linux-x86_64.tar.gz`), unpack it, and put `doc-monster` (or `doc-monster.exe`)
-somewhere on your `PATH`. You still need step 2 below (FFmpeg and Tesseract) for videos; you do
-not need Rust.
+These have FFmpeg and Tesseract built in, so videos work too, and you do not need Rust.
 
-**Linux, with nothing else to install:** [`Linux Binary/doc-monster`](<Linux Binary/README.md>)
-in this repository is one static file with FFmpeg and Tesseract built in, so it handles videos
-without step 2. It runs on any 64-bit Intel or AMD Linux.
+**Windows**, with [uv](https://docs.astral.sh/uv/) or winget (details in
+[Windows/README.md](Windows/README.md)):
 
-macOS may refuse to open a downloaded program the first time; allow it once with
+```powershell
+uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/v0.1.0/doc_monster-0.1.0-py3-none-win_amd64.whl
+# or, once listed in the winget catalogue:
+winget install DylanCodyBrown.DocMonster
+```
+
+**Linux**, with uv, or by downloading one file
+([details](<Linux Binary/README.md>)):
+
+```bash
+uv tool install https://github.com/DylanCodyBrown/Doc-monster/releases/download/linux-latest/doc_monster-0.1.0-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl
+# or:
+curl -LO https://github.com/DylanCodyBrown/Doc-monster/releases/download/linux-latest/doc-monster
+chmod +x doc-monster
+```
+
+**macOS:** from the [Releases page](https://github.com/DylanCodyBrown/Doc-monster/releases),
+download `doc-monster-macos-arm64.tar.gz`, unpack it and put `doc-monster` somewhere on your
+`PATH`. You still need step 2 below (FFmpeg and Tesseract) for videos. macOS may refuse to open
+a downloaded program the first time; allow it once with
 `xattr -d com.apple.quarantine ./doc-monster`.
 
 To build it yourself instead, follow the steps below.
@@ -157,5 +172,5 @@ cargo uninstall doc-monster                                                     
   with C++"), then run the install again.
 - **`videos need FFmpeg installed` / `videos need Tesseract installed`**: do step 2, open a new
   terminal, and check with `ffmpeg -version` and `tesseract --version`.
-- **No monster on Windows**: the animation needs Windows 10 or later; on older consoles Doc Monster
-  simply runs without it.
+- **No pet or colours on Windows**: they need Windows 10 or later; in the old console window the
+  check marks become `+` and `x`. Windows Terminal shows everything.

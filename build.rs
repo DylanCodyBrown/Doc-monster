@@ -19,9 +19,15 @@ fn main() {
     ));
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 
+    // Windows programs end in .exe; the names are kept as they will be unpacked.
+    let exe = if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        ".exe"
+    } else {
+        ""
+    };
     let mut files: Vec<(String, PathBuf)> = ["ffmpeg", "ffprobe", "tesseract"]
         .iter()
-        .map(|n| (n.to_string(), dir.join(n)))
+        .map(|n| (format!("{n}{exe}"), dir.join(format!("{n}{exe}"))))
         .collect();
     let mut langs: Vec<PathBuf> = std::fs::read_dir(dir.join("tessdata"))
         .expect("DOC_MONSTER_TOOLS/tessdata is missing")
