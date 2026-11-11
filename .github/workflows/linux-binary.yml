@@ -29,7 +29,13 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake nasm musl-tools python3-pip
+        # Ubuntu's package servers are sometimes briefly unreachable: try a few times.
+        run: |
+          for attempt in 1 2 3 4; do
+            sudo apt-get update && sudo apt-get install -y build-essential cmake nasm musl-tools python3-pip && exit 0
+            echo "Package install failed (attempt $attempt); retrying in 60 seconds"; sleep 60
+          done
+          exit 1
 
       # FFmpeg, Leptonica and Tesseract take about 10 minutes to build; build.sh skips any that
       # are already built, so keep them between runs until build.sh changes.
