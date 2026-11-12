@@ -699,6 +699,11 @@ fn process(
             let s = transcript::analyze::summarize(&t, model_for(args)?);
             doc.markdown = s.body;
             doc.omitted.extend(s.notes);
+            if let Some(title) = s.title {
+                doc.title = title;
+            }
+            doc.meta = s.meta;
+            doc.body_title = Some("Transcript".into());
             Some((s.markdown, Some(s.description)))
         }
         _ => None,

@@ -36,4 +36,15 @@ pub struct Document {
     pub markdown: String,
     /// The conversation, when the file is a transcript (meeting captions, "Name: ..." text).
     pub transcript: Option<transcript::Transcript>,
+    /// More front matter after the description (meetings: date, time, place, attendees...).
+    pub meta: Vec<(String, Meta)>,
+    /// The body's heading ("Full content" when not set).
+    pub body_title: Option<String>,
+}
+
+/// A front matter value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Meta {
+    Text(String),
+    List(Vec<String>),
 }

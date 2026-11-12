@@ -10,7 +10,7 @@ chmod +x doc-monster
 ./doc-monster feed report.docx
 ./doc-monster feed talk.mp4          # on-screen text and subtitles, no FFmpeg install needed
 ./doc-monster feed sign.png          # the text in a picture
-./doc-monster feed standup.vtt        # a Teams or Zoom meeting: decisions, tasks, topics
+./doc-monster feed standup.vtt        # a meeting: goal, outcome, summary, off-topic talk
 ./doc-monster feed standup.vtt --summarizer model   # plus written topic summaries (model downloaded once)
 ```
 
@@ -30,8 +30,8 @@ chmod +x doc-monster
 | --- | --- |
 | Doc Monster | `doc-monster 0.3.0`, built from this repository with `--features bundled-tools,model` |
 | Compiler | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
-| Size | 24,914,672 bytes |
-| SHA-256 | `b3a2a77c7a876365689cc4c676b2a51bc8a2e7dd247e1b570fdb93965ac7bef5` |
+| Size | 25,001,008 bytes |
+| SHA-256 | `87810ebcc429c8d9407e527b66c1d24df9565f261d2443fbcd6cc98526d77414` |
 
 Built in:
 
@@ -64,7 +64,7 @@ doc-monster 0.3.0
 
 - Converting a small HTML page with `-c 6` wrote the expected Markdown with front matter.
 - `regurgitate --keep-duplicates` on two Markdown files wrote an `INDEX.md` listing both.
-- The test suite passed on this target with the tools built in: 109 tests, 0 failures.
+- The test suite passed on this target with the tools built in: 115 tests, 0 failures.
 - With the `PATH` emptied, so no system FFmpeg or Tesseract could be found, the test slides video
   converted to the same Markdown as a build using the system's tools.
 - A 10-minute 720p video: 598 screen changes found, 467 read, in 20.5 seconds (21.8 seconds with

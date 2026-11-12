@@ -5,6 +5,7 @@
 //! with decisions, action items, open questions and who said what (see `analyze`).
 
 pub mod analyze;
+pub mod meeting;
 
 use regex::Regex;
 use std::sync::OnceLock;
@@ -18,9 +19,48 @@ pub struct Utterance {
     pub text: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Transcript {
     pub utterances: Vec<Utterance>,
+    /// Lines above the conversation: title, date, place, agenda, attendees.
+    pub header: Vec<String>,
+    /// The captions carried Teams' speaker tags.
+    pub teams: bool,
+    /// The file's name, without folders (Zoom puts the start time in it).
+    pub file_name: String,
+}
+
+/// The lines before the first speaker (for captions: before the first cue).
+fn header_of(text: &str, captions: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if captions && l.contains("-->") {
+            break;
+        }
+        if !captions
+            && (line_speaker()
+                .captures(l)
+                .is_some_and(|c| speaker_ok(&c["name"]))
+                || header_speaker()
+                    .captures(l)
+                    .is_some_and(|c| speaker_ok(&c["name"])))
+        {
+            break;
+        }
+        // Caption cue numbers and the NOTE marker are not part of the meeting's details.
+        let l = l.strip_prefix("NOTE").map(str::trim).unwrap_or(l);
+        if !l.is_empty()
+            && !l.eq_ignore_ascii_case("WEBVTT")
+            && !l.chars().all(|c| c.is_ascii_digit() || c == '-')
+        {
+            out.push(l.to_string());
+        }
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    out
 }
 
 /// "1:02:03", "02:03", "0:03", "00:01:02.500", "0:0:2.30": seconds.
@@ -295,7 +335,12 @@ pub fn detect(text: &str, captions: bool, force: bool) -> Option<Transcript> {
     } else {
         looks_like_conversation(&utterances, lines)
     };
-    ok.then_some(Transcript { utterances })
+    ok.then(|| Transcript {
+        utterances,
+        header: header_of(text, captions),
+        teams: captions && vtt_voice().is_match(text),
+        file_name: String::new(),
+    })
 }
 
 #[cfg(test)]

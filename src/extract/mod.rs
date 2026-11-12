@@ -412,6 +412,12 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
             }
             _ => None,
         };
+        if let Some(t) = transcript.as_mut() {
+            t.file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+        }
         out
     };
 
@@ -424,6 +430,8 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
         format,
         markdown: out.markdown,
         transcript,
+        meta: Vec::new(),
+        body_title: None,
     })
 }
 

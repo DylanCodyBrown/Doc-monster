@@ -1,0 +1,33 @@
+Q3 roadmap alignment
+November 12, 2026, 10:00 AM
+Location: Microsoft Teams
+Agenda: Agree the Q3 roadmap priorities and the launch budget
+
+[00:00:03] Priya Shah: Morning all. Did anyone catch the match last night? What a finish.
+[00:00:09] Tom Becker: Unreal. Two goals in stoppage time. I was yelling at the TV, my neighbours must hate me.
+[00:00:18] Dana Wu: I missed it, I was stuck in traffic for an hour. The bridge was closed again.
+[00:00:26] Tom Becker: You have to watch the highlights. The second goal was a volley from outside the box.
+[00:00:35] Priya Shah: Also, has anyone fixed the coffee machine on the third floor? It has been broken since Monday.
+[00:00:42] Dana Wu: Facilities said Thursday. I have been bringing my own coffee from the cafe downstairs.
+[00:00:50] Tom Becker: The cafe does a decent flat white actually. Better than the machine ever did.
+[00:01:02] Priya Shah: Okay, let's get going. The goal today is to agree the Q3 roadmap priorities and the launch budget.
+[00:01:10] Tom Becker: Love it. I think we really need to leverage our synergies and align on a holistic north star before we boil the ocean here.
+[00:01:22] Dana Wu: Totally, and we should double-click on the low-hanging fruit to move the needle on engagement going forward. It's all about the ecosystem.
+[00:01:34] Tom Becker: Exactly, it's a paradigm shift. We need to empower the stakeholders and circle back once we have alignment on the deliverables.
+[00:01:46] Priya Shah: Sure, but concretely: we have three candidates for Q3. Dark mode, the guild system, and the trading overhaul.
+[00:01:55] Dana Wu: The guild system is what players ask for most. It came up in eighty percent of the survey answers.
+[00:02:04] Tom Becker: Dark mode is cheap though, maybe two weeks of work.
+[00:02:10] Priya Shah: Two weeks we don't have. We decided to drop dark mode from Q3 and put the guild system first.
+[00:02:18] Dana Wu: Makes sense. The trading overhaul can wait for Q4.
+[00:02:25] Priya Shah: Agreed. Trading moves to Q4. Dana, can you write up the guild system scope?
+[00:02:31] Dana Wu: Sure, I'll send the scope document by Friday.
+[00:02:38] Tom Becker: What's the launch budget looking like? Do we have numbers from finance yet?
+[00:02:44] Priya Shah: Not yet, finance hasn't come back to us. Nobody knows the number.
+[00:02:51] Tom Becker: Speaking of numbers, my fantasy league team is a disaster this season. I traded away my best striker in week two.
+[00:03:00] Dana Wu: Ha, I'm in last place in mine. My cousin set it up and I never check it.
+[00:03:08] Tom Becker: We should do an office league next season. Winner gets the good parking spot.
+[00:03:15] Priya Shah: Ha, maybe. Anyway, are we doing the team lunch on Friday? Where are we going?
+[00:03:21] Dana Wu: The Thai place got good reviews. Or the pizza place near the station.
+[00:03:28] Tom Becker: Pizza, always pizza. Last time the Thai place took forever.
+[00:03:35] Dana Wu: Fine, pizza it is. I'll book a table for six.
+[00:03:41] Priya Shah: Great. Thanks everyone, good session.

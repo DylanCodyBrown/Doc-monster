@@ -633,34 +633,105 @@ fn meeting_transcripts_from_text_teams_and_zoom_are_summarised_alike() {
     assert!(ok, "{log}");
     let summary = |name: &str| {
         let md = std::fs::read_to_string(d.join(name)).unwrap();
-        md[md.find("## Summary").unwrap()..md.find("## Full content").unwrap()].to_string()
+        md[md.find("## Goal").unwrap()..md.find("## Transcript").unwrap()].to_string()
     };
     let text = summary("meeting.md");
     assert_eq!(text, summary("meeting-teams.md"));
     assert_eq!(text, summary("meeting-zoom.md"));
     for expected in [
-        "Meeting transcript · 6 min · 4 speakers · 3 topics",
+        "## Goal\n\n“Three things today: the DataStore saving outage from Tuesday",
+        "## Outcome\n\n**2 decisions · 6 action items · 1 open question · 100% on topic**",
         "### Decisions\n- “We decided to give every affected player a free rare egg.” · Maya · 2:26",
         "- **Jordan**: “I'll have the session locking done by Thursday.” · due Thursday · about outage",
         "- **Lee**: “Lee, can you set that up this week?” → “Sure, I'll wire it into the dashboard by Wednesday.” · due Wednesday",
-        "### Questions left open\n- “Do rare pets keep their stats after trading?” · Sam · 4:20",
-        "- **0:04–2:33 · Outage**",
-        "- **3:02–4:36 · Rare pet balance**",
-        "- **5:10–6:15 · Hatching update release**",
-        "### Who said what\n- **Jordan Lee** · 33% of the words",
+        "### Open questions\n- “Do rare pets keep their stats after trading?” · Sam · 4:20",
+        "### Outage · 0:04–2:33 · Maya, Jordan, Sam, Lee",
+        "### Rare pet balance · 3:02–4:36",
+        "### Hatching update release · 5:10–6:15",
+        "### Who spoke\n- **Jordan Lee** · 33% of the words",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
     }
+    // The front matter: the meeting's details, read from the lines above the conversation.
     let md = std::fs::read_to_string(d.join("meeting.md")).unwrap();
+    for expected in [
+        "title: \"Aurora weekly sync\"\n",
+        "description: \"Aurora weekly sync (6 min, 4 attendees) on outage, rare pet balance, hatching update release: 2 decisions, 6 action items and 1 open question; 100% on topic.\"\n",
+        "date: \"2026-11-10\"\ntime: \"09:30\"\nduration: \"6 min\"\nplace: \"\"\n",
+        "topic: \"Outage, rare pet balance, hatching update release\"\n",
+        "attendees:\n  - \"Maya Lopez\"\n  - \"Jordan Lee\"\n  - \"Sam Park\"\n  - \"Lee Chen\"\n---",
+    ] {
+        assert!(md.contains(expected), "missing {expected:?} in:\n{md}");
+    }
+    // Teams captions say where the meeting was held.
     assert!(
-        md.contains("description: \"Meeting transcript (6 min, 4 speakers: Jordan, Maya, Lee, Sam) covering outage, rare pet balance, hatching update release.\""),
+        std::fs::read_to_string(d.join("meeting-teams.md"))
+            .unwrap()
+            .contains("place: \"Microsoft Teams\"")
+    );
+    // The full conversation follows, by subject.
+    assert!(
+        md.contains(
+            "## Transcript\n\n### Outage (0:04–2:33)\n\n**Maya Lopez** (0:04): Morning everyone."
+        ),
         "{md}"
     );
-    // The full conversation follows, by topic.
     assert!(
-        md.contains("## Rare pet balance (3:02–4:36)\n\n**Sam Park** (3:02): Next topic"),
+        md.contains("### Rare pet balance (3:02–4:36)\n\n**Sam Park** (3:02): Next topic"),
         "{md}"
     );
+}
+
+/// Meetings that wander: the football and the lunch plans go under Miscellaneous, the real
+/// outcome stays on top, and a meeting about nothing says so.
+#[test]
+fn off_topic_and_empty_meetings() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for f in ["meeting-offtopic.txt", "meeting-nothing.txt"] {
+        std::fs::copy(fixtures.join(f), d.join(f)).unwrap();
+    }
+    let (ok, log) = run(&["gorge", d.to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    let wandering = std::fs::read_to_string(d.join("meeting-offtopic.md")).unwrap();
+    for expected in [
+        "place: \"Microsoft Teams\"",
+        "## Goal\n\nAgree the Q3 roadmap priorities and the launch budget _(from the meeting's agenda)_",
+        "**2 decisions · 1 action item · 1 open question · 33% on topic**",
+        "- “Trading moves to Q4.” · Priya · 2:25",
+        "- **Dana**: “Dana, can you write up the guild system scope?” → “Sure, I'll send the scope document by Friday.” · due Friday",
+        "- “What's the launch budget looking like? Do we have numbers from finance yet?” · Tom · 2:38",
+        "### Off topic · 50% of the meeting\n- **0:03–0:50** · ",
+        "\n- **2:51–3:41** · ",
+        "### Buzzwords · 16% of the meeting was mostly buzzwords",
+    ] {
+        assert!(
+            wandering.contains(expected),
+            "missing {expected:?} in:\n{wandering}"
+        );
+    }
+    let outcome = &wandering
+        [wandering.find("## Outcome").unwrap()..wandering.find("## Miscellaneous").unwrap()];
+    assert!(
+        !outcome.contains("match") && !outcome.contains("pizza") && !outcome.contains("table"),
+        "{outcome}"
+    );
+
+    let nothing = std::fs::read_to_string(d.join("meeting-nothing.md")).unwrap();
+    for expected in [
+        "description: \"Weekly touch base (2 min, 3 attendees): no decisions, action items or open questions; 0% on topic.\"",
+        "_Stated only in general terms: no concrete subject._",
+        "**No decisions, action items or open questions · 0% on topic**",
+        "Most of the meeting (100%) was small talk or buzzwords.",
+        "_No on-topic discussion to summarize._",
+        "### Buzzwords · 66% of the meeting was mostly buzzwords\n`touch base` ×2",
+    ] {
+        assert!(
+            nothing.contains(expected),
+            "missing {expected:?} in:\n{nothing}"
+        );
+    }
 }
 
 #[test]
@@ -698,7 +769,11 @@ fn teams_word_transcripts_and_short_chats_with_transcript_flag() {
     assert!(ok, "{log}");
     let md = std::fs::read_to_string(d.join("teams.md")).unwrap();
     assert!(
-        md.contains("Meeting transcript · 41 s · 3 speakers"),
+        md.contains("title: \"Weekly sync\"\n") && md.contains("duration: \"41 s\"\n"),
+        "{md}"
+    );
+    assert!(
+        md.contains("**1 decision · 2 action items · 1 open question · 100% on topic**"),
         "{md}"
     );
     assert!(
@@ -725,7 +800,7 @@ fn teams_word_transcripts_and_short_chats_with_transcript_flag() {
     assert!(
         !std::fs::read_to_string(d.join("chat.md"))
             .unwrap()
-            .contains("Meeting transcript")
+            .contains("## Outcome")
     );
     let (ok, log) = run(&[
         "feed",
@@ -772,11 +847,15 @@ fn model_summaries_when_the_model_is_available() {
     assert!(ok, "{log}");
     let md = std::fs::read_to_string(d.join("meeting.md")).unwrap();
     assert!(
-        md.contains("written by a language model (Qwen2.5 1.5B Instruct)"),
+        md.contains("Written by a language model (Qwen2.5 1.5B Instruct)"),
         "{md}"
     );
-    // The model's summary replaces the quoted key sentences under each topic.
-    let topics = &md[md.find("### Topics").unwrap()..md.find("### Who said what").unwrap()];
-    assert_eq!(topics.matches("\n  - ").count(), 3, "{topics}");
+    // The model's prose replaces the quoted key sentences under each subject.
+    let topics = &md[md.find("## Summary").unwrap()..md.find("## Miscellaneous").unwrap()];
+    assert_eq!(topics.matches("\n### ").count(), 3, "{topics}");
+    assert!(
+        !topics.contains("\n- "),
+        "prose, not quoted lines: {topics}"
+    );
     assert!(topics.to_lowercase().contains("saturday"), "{topics}");
 }

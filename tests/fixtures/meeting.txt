@@ -1,4 +1,5 @@
 Aurora weekly sync
+November 10, 2026, 9:30 AM
 
 [00:00:04] Maya Lopez: Morning everyone. Three things today: the DataStore saving outage from Tuesday, the rare pet balance complaints, and whether we still ship the hatching update on Saturday.
 [00:00:21] Jordan Lee: Okay, the outage first. On Tuesday about four hundred players lost progress because our saves were being throttled. We were writing the whole profile every ten seconds.

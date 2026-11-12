@@ -93,7 +93,7 @@ jobs:
           grep -q "Rare pet balance" "$dir/meeting-teams.md"
           # The model downloads itself on first use (into ~/.cache/doc-monster).
           "$B" feed "$dir/meeting.txt" --summarizer model --overwrite --no-anim
-          grep -q "written by a language model (Qwen2.5 1.5B Instruct)" "$dir/meeting.md"
+          grep -qi "written by a language model (Qwen2.5 1.5B Instruct)" "$dir/meeting.md"
           sed -n '/### Topics/,/### Who said what/p' "$dir/meeting.md"
 
       - name: Fingerprint

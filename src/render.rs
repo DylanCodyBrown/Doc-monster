@@ -23,6 +23,18 @@ pub fn render(
     out.push('\n');
     out.push_str(&format!("title: {}\n", yaml_string(&doc.title)));
     out.push_str(&format!("description: {}\n", yaml_string(description)));
+    for (key, value) in &doc.meta {
+        match value {
+            crate::Meta::Text(t) => out.push_str(&format!("{key}: {}\n", yaml_string(t))),
+            crate::Meta::List(items) if items.is_empty() => out.push_str(&format!("{key}: []\n")),
+            crate::Meta::List(items) => {
+                out.push_str(&format!("{key}:\n"));
+                for i in items {
+                    out.push_str(&format!("  - {}\n", yaml_string(i)));
+                }
+            }
+        }
+    }
     out.push_str("---\n\n");
     if !doc.omitted.is_empty() {
         out.push_str(&format!(
@@ -31,14 +43,19 @@ pub fn render(
         ));
     }
     if let Some(text) = summary {
-        out.push_str("## Summary\n\n");
+        // A summary with its own sections (a meeting's Goal, Outcome...) needs no heading.
+        if !text.trim_start().starts_with("## ") {
+            out.push_str("## Summary\n\n");
+        }
         out.push_str(text.trim());
         out.push('\n');
         if body.is_some() {
-            out.push_str(if level == 1 {
-                "\n---\n\n## Full content\n\n"
+            let title = doc.body_title.as_deref().unwrap_or("Full content");
+            out.push_str(&if level == 1 {
+                format!("\n---\n\n## {title}\n\n")
             } else {
-                "\n---\n\n## Compressed content\n\n"
+                format!("\n---\n\n## {title} (compressed)\n\n")
+                    .replace("Full content (compressed)", "Compressed content")
             });
         }
     }
@@ -85,6 +102,8 @@ mod tests {
             format: Format::PlainText,
             markdown: "body text\n".into(),
             transcript: None,
+            meta: Vec::new(),
+            body_title: None,
         }
     }
 

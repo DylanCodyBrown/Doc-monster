@@ -148,51 +148,83 @@ Speech itself is not transcribed; without subtitles the output says so.
 
 ## Meetings and conversations
 
-Meeting transcripts are recognised automatically and summarised as conversations: **Teams and
-Zoom captions** (`.vtt`), **Teams Word transcripts** (`.docx`) and **text with `Name: ...`
-lines** (with or without times). `--transcript` reads a short chat as one too.
+Meeting transcripts are recognised automatically: **Teams and Zoom captions** (`.vtt`), **Teams
+Word transcripts** (`.docx`) and **text with `Name: ...` lines** (with or without times).
+`--transcript` reads a short chat as one too. They get their own front matter and layout:
 
 ```markdown
-### At a glance
-Meeting transcript · 6 min · 4 speakers · 3 topics · 560 words
+---
+# Condensed with Doc Monster
+title: "Q3 roadmap alignment"
+description: "Q3 roadmap alignment (4 min, 3 attendees) on guild system, dark mode, launch budget: 2 decisions, 1 action item and 1 open question; 33% on topic."
+date: "2026-11-12"
+time: "10:00"
+duration: "4 min"
+place: "Microsoft Teams"
+topic: "Guild system, dark mode, launch budget"
+attendees:
+  - "Priya Shah"
+  - "Tom Becker"
+  - "Dana Wu"
+---
+
+## Goal
+Agree the Q3 roadmap priorities and the launch budget _(from the meeting's agenda)_
+
+## Outcome
+**2 decisions · 1 action item · 1 open question · 33% on topic**
 
 ### Decisions
-- “We'll ship the hatching update on Saturday with trading turned off for the first twenty four hours.” · Maya · 5:58
+- “We decided to drop dark mode from Q3 and put the guild system first.” · Priya · 2:10
+- “Trading moves to Q4.” · Priya · 2:25
 
 ### Action items
-- **Jordan**: “I'll have the session locking done by Thursday.” · due Thursday · about outage · 1:40
-- **Lee**: “Lee, can you set that up this week?” → “Sure, I'll wire it into the dashboard by Wednesday.” · due Wednesday
+- **Dana**: “Dana, can you write up the guild system scope?” → “Sure, I'll send the scope document by Friday.” · due Friday · 2:31
 
-### Questions left open
-- “Do rare pets keep their stats after trading?” · Sam · 4:20
+### Open questions
+- “What's the launch budget looking like? Do we have numbers from finance yet?” · Tom · 2:38
 
-### Topics
-- **0:04–2:33 · Outage** · Maya, Jordan, Sam, Lee
-- **3:02–4:36 · Rare pet balance** · Sam, Lee, Maya, Jordan
-- **5:10–6:15 · Hatching update release** · Maya, Jordan, Sam, Lee
+## Summary
+### Guild system, dark mode, launch budget · 1:02–2:44 · Priya, Dana, Tom
+...
 
-### Who said what
-- **Jordan Lee** · 33% of the words, 8 turns · _loop, profile, save_
+## Miscellaneous
+### Off topic · 50% of the meeting
+- **0:03–0:50** · cafe, coffee, bridge, highlights · Priya, Tom, Dana
+- **2:51–3:41** · pizza, league, season, thai · Tom, Dana, Priya
+
+### Buzzwords · 16% of the meeting was mostly buzzwords
+`align on` · `boil the ocean` · `circle back` · `double-click` · `leverage` · ...
+
+### Who spoke
+- **Tom Becker** · 38% of the words, 10 turns · _cheap, numbers, dark_
+
+---
+## Transcript
+(the whole conversation, marked where each subject and each digression starts)
 ```
 
-Topics are found where someone announces one ("next topic, ...") or the vocabulary changes,
-and every item links to its time. Spoken filler ("um", "you know") is ignored, a request and
-its owner's "sure, I'll ..." become one action item, and a question counts as open only when
-nobody answered it. The full conversation follows, grouped by topic.
+- **Front matter:** the date, time and place come from the lines above the conversation (Teams
+  and Zoom write them there) or a Zoom recording's file name; attendees are the people listed
+  there plus everyone who spoke. Unknown details are left empty.
+- **Goal:** the agenda line, or the sentence where someone says what the meeting is for. A goal
+  stated only in buzzwords is marked as such; no goal at all is said plainly.
+- **Outcome:** decisions, action items (with owner and due date; a request and its owner's
+  "sure, I'll ..." are one item) and questions nobody answered, each linked to its time, and a
+  one-line verdict including how much of the meeting was on topic.
+- **Off topic:** every turn is compared with the meeting's work, small talk (weekends, sport,
+  lunch) and buzzwords ("circle back", "move the needle") that say nothing concrete. Those go
+  under Miscellaneous with their times, so the Outcome and Summary only cover the real work. A
+  meeting about nothing says so: "No decisions, action items or open questions · 0% on topic".
 
 **Written summaries, optional:** `--summarizer model` also has a small language model write
-each topic's summary in plain sentences. It runs on your own computer
+each subject's summary in plain sentences. It runs on your own computer
 ([Qwen2.5 1.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), Apache 2.0),
-is downloaded once (about 1.1 GB) and takes a few seconds per topic. It is given the decisions,
-tasks and open questions found above, so it does not turn a suggestion into a decision, and
-its summaries are labelled as model-written. `--model-dir` points at a folder holding the
-model files, for computers without internet access.
-
-```markdown
-- **3:02–4:36 · Rare pet balance** · Sam, Lee, Maya, Jordan
-  - The problem is that players hatch a hundred eggs and never see a rare pet. They discussed
-    whether to add a pity counter in the profile. Lee will model the numbers for Tuesday's meeting.
-```
+is downloaded once (about 1.1 GB) and takes a few seconds per subject. It reads only the
+on-topic conversation, the meeting's goal and the outcome found above, so off-topic talk never
+reaches it and it does not turn a suggestion into a decision; a check also corrects a task
+credited to the wrong person. Its summaries are labelled as model-written. `--model-dir` points
+at a folder holding the model files, for computers without internet access.
 
 ## How the summary works
 
