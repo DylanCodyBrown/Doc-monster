@@ -400,17 +400,25 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
             Format::Subtitles => subtitles::convert(&bytes, &fallback)?.into(),
             Format::Video | Format::Image | Format::Csv => unreachable!(),
         };
-        transcript = match format {
-            Format::Subtitles => {
-                crate::transcript::detect(&String::from_utf8_lossy(&bytes), true, opts.transcript)
+        // Transcript mode is only in builds with the `transcript` feature (the Linux binary);
+        // elsewhere captions, text and Word files are converted as ordinary documents.
+        transcript = if !cfg!(feature = "transcript") {
+            None
+        } else {
+            match format {
+                Format::Subtitles => crate::transcript::detect(
+                    &String::from_utf8_lossy(&bytes),
+                    true,
+                    opts.transcript,
+                ),
+                Format::PlainText | Format::Markdown | Format::Code => {
+                    crate::transcript::detect(&text::decode(&bytes), false, opts.transcript)
+                }
+                Format::Docx | Format::Odf | Format::Rtf | Format::LegacyDoc | Format::Pdf => {
+                    crate::transcript::detect(&out.markdown, false, opts.transcript)
+                }
+                _ => None,
             }
-            Format::PlainText | Format::Markdown | Format::Code => {
-                crate::transcript::detect(&text::decode(&bytes), false, opts.transcript)
-            }
-            Format::Docx | Format::Odf | Format::Rtf | Format::LegacyDoc | Format::Pdf => {
-                crate::transcript::detect(&out.markdown, false, opts.transcript)
-            }
-            _ => None,
         };
         if let Some(t) = transcript.as_mut() {
             t.file_name = path

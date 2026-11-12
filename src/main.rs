@@ -116,15 +116,18 @@ struct Args {
     max_frames: Option<usize>,
     /// Read the file as a meeting transcript ("Name: ..." lines, Teams or Zoom captions) even
     /// when it does not look like one. Longer transcripts are recognised automatically.
+    #[cfg(feature = "transcript")]
     #[arg(long)]
     transcript: bool,
     /// How transcripts are summarised. rules: topics, decisions, action items and open
     /// questions, found in the words people said. model: the same, plus a summary of each topic
     /// written by a language model running on this computer (Qwen2.5 1.5B Instruct, about
     /// 1.1 GB, downloaded once; a few seconds per topic).
+    #[cfg(feature = "transcript")]
     #[arg(long, value_enum, default_value_t = Summarizer::Rules)]
     summarizer: Summarizer,
     /// A folder that already holds the model files, for computers without internet access.
+    #[cfg(feature = "transcript")]
     #[arg(long, value_name = "FOLDER")]
     model_dir: Option<PathBuf>,
     /// Print a JSON report on standard output instead of text.
@@ -174,6 +177,7 @@ struct Report {
     indexes: Vec<Indexed>,
 }
 
+#[cfg(feature = "transcript")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 enum Summarizer {
     Rules,
@@ -197,14 +201,26 @@ fn model_for(args: &Args) -> Result<Option<&'static dyn transcript::analyze::Rew
 }
 
 #[cfg(not(feature = "model"))]
-fn model_for(args: &Args) -> Result<Option<&'static dyn transcript::analyze::Rewriter>> {
-    if args.summarizer == Summarizer::Model {
+fn model_for(_args: &Args) -> Result<Option<&'static dyn transcript::analyze::Rewriter>> {
+    #[cfg(feature = "transcript")]
+    if _args.summarizer == Summarizer::Model {
         bail!(
-            "this copy of Doc Monster was built without the language model; the releases and \
-             `uv tool install doc-monster` include it (or build with --features model)"
+            "this copy of Doc Monster was built without the language model; the Linux binary \
+             includes it (or build with --features model)"
         );
     }
     Ok(None)
+}
+
+/// --transcript, in builds that have transcript mode.
+#[cfg(feature = "transcript")]
+fn wants_transcript(args: &Args) -> bool {
+    args.transcript
+}
+
+#[cfg(not(feature = "transcript"))]
+fn wants_transcript(_args: &Args) -> bool {
+    false
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -433,7 +449,7 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
         max_rows: args.max_rows,
         screen_lang: args.screen_lang.clone(),
         max_frames: args.max_frames.map(|m| m.max(1)),
-        transcript: args.transcript,
+        transcript: wants_transcript(args),
     };
 
     let mut results: Vec<Outcome> = found

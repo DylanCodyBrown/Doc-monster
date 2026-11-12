@@ -621,6 +621,7 @@ fn text_in_pictures_is_read_and_pictures_without_text_are_skipped() {
 }
 
 /// The test meeting as text, Teams captions and Zoom captions: the same summary from each.
+#[cfg(feature = "transcript")]
 #[test]
 fn meeting_transcripts_from_text_teams_and_zoom_are_summarised_alike() {
     let dir = tempfile::tempdir().unwrap();
@@ -684,6 +685,7 @@ fn meeting_transcripts_from_text_teams_and_zoom_are_summarised_alike() {
 
 /// Meetings that wander: the football and the lunch plans go under Miscellaneous, the real
 /// outcome stays on top, and a meeting about nothing says so.
+#[cfg(feature = "transcript")]
 #[test]
 fn off_topic_and_empty_meetings() {
     let dir = tempfile::tempdir().unwrap();
@@ -734,6 +736,7 @@ fn off_topic_and_empty_meetings() {
     }
 }
 
+#[cfg(feature = "transcript")]
 #[test]
 fn teams_word_transcripts_and_short_chats_with_transcript_flag() {
     use docx_rs::{Docx, Paragraph, Run};
@@ -821,6 +824,7 @@ fn teams_word_transcripts_and_short_chats_with_transcript_flag() {
 
 /// The language model, when this build has it and the model files are on hand
 /// (DOC_MONSTER_MODEL_DIR): every topic gets a model summary, labelled as such.
+#[cfg(feature = "model")]
 #[test]
 fn model_summaries_when_the_model_is_available() {
     let Some(model_dir) = std::env::var_os("DOC_MONSTER_MODEL_DIR") else {
@@ -858,4 +862,28 @@ fn model_summaries_when_the_model_is_available() {
         "prose, not quoted lines: {topics}"
     );
     assert!(topics.to_lowercase().contains("saturday"), "{topics}");
+}
+
+/// Builds without transcript mode (everything but the Linux binary): no meeting flags, and a
+/// meeting file is converted like any other document.
+#[cfg(not(feature = "transcript"))]
+#[test]
+fn builds_without_transcript_mode_treat_meetings_as_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    std::fs::copy(fixtures.join("meeting.txt"), d.join("meeting.txt")).unwrap();
+    let file = d.join("meeting.txt");
+    for flag in ["--transcript", "--summarizer", "--model-dir"] {
+        let (ok, log) = run(&["feed", file.to_str().unwrap(), "-q", flag]);
+        assert!(!ok && log.contains("unexpected argument"), "{flag}: {log}");
+    }
+    let (ok, log) = run(&["feed", file.to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("meeting.md")).unwrap();
+    assert!(
+        !md.contains("## Outcome") && !md.contains("attendees:"),
+        "{md}"
+    );
+    assert!(md.contains("## Summary"), "{md}");
 }

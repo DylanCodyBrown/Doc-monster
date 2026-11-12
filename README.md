@@ -148,6 +148,9 @@ Speech itself is not transcribed; without subtitles the output says so.
 
 ## Meetings and conversations
 
+_Only in the [Linux binary](<Linux Binary/README.md>). The Windows and `uv tool install`
+versions convert meeting files as ordinary documents and have none of the flags below._
+
 Meeting transcripts are recognised automatically: **Teams and Zoom captions** (`.vtt`), **Teams
 Word transcripts** (`.docx`) and **text with `Name: ...` lines** (with or without times).
 `--transcript` reads a short chat as one too. They get their own front matter and layout:

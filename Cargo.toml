@@ -40,9 +40,12 @@ ureq = { version = "3.5.1", optional = true, default-features = false, features 
 [features]
 # Build FFmpeg, ffprobe and Tesseract into the program (see Linux Binary/README.md).
 bundled-tools = ["dep:flate2"]
-# Optional summaries written by a local language model (Flan-T5, run with candle):
-# --summarizer model. The model is downloaded once, on first use.
-model = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers", "dep:sha2", "dep:ureq"]
+# Transcript mode: meetings summarised as goal, outcome, summary and miscellaneous
+# (--transcript). Only the standalone Linux binary is built with it.
+transcript = []
+# Topic summaries written by a local language model (Qwen2.5 1.5B Instruct, run with candle):
+# --summarizer model. The model is downloaded once, on first use. Needs transcript mode.
+model = ["transcript", "dep:candle-core", "dep:candle-transformers", "dep:tokenizers", "dep:sha2", "dep:ureq"]
 
 [build-dependencies]
 flate2 = "1.1.11"

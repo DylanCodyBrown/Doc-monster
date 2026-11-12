@@ -14,6 +14,9 @@ chmod +x doc-monster
 ./doc-monster feed standup.vtt --summarizer model   # plus written topic summaries (model downloaded once)
 ```
 
+Transcript mode (`--transcript`, `--summarizer`, `--model-dir`) is only in this build; the
+Windows and `uv tool install` versions don't have it.
+
 ## What it targets
 
 | | |
