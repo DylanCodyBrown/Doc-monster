@@ -1,9 +1,15 @@
 mod dropped;
+
+// The static Linux build uses musl, whose memory allocator is slow under heavy use (the
+// language model); mimalloc makes it as fast as the usual Linux build.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod ui;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use doc_monster::{clean, digest, extract, index, render};
+use doc_monster::{clean, digest, extract, index, render, transcript};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -108,6 +114,19 @@ struct Args {
     /// screen changed; anything skipped is listed under Not included).
     #[arg(long)]
     max_frames: Option<usize>,
+    /// Read the file as a meeting transcript ("Name: ..." lines, Teams or Zoom captions) even
+    /// when it does not look like one. Longer transcripts are recognised automatically.
+    #[arg(long)]
+    transcript: bool,
+    /// How transcripts are summarised. rules: topics, decisions, action items and open
+    /// questions, found in the words people said. model: the same, plus a summary of each topic
+    /// written by a language model running on this computer (Qwen2.5 1.5B Instruct, about
+    /// 1.1 GB, downloaded once; a few seconds per topic).
+    #[arg(long, value_enum, default_value_t = Summarizer::Rules)]
+    summarizer: Summarizer,
+    /// A folder that already holds the model files, for computers without internet access.
+    #[arg(long, value_name = "FOLDER")]
+    model_dir: Option<PathBuf>,
     /// Print a JSON report on standard output instead of text.
     #[arg(long)]
     json: bool,
@@ -153,6 +172,39 @@ struct Report {
     results: Vec<Outcome>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     indexes: Vec<Indexed>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Summarizer {
+    Rules,
+    Model,
+}
+
+/// The language model for transcript summaries: loaded (and downloaded) once, on first use.
+#[cfg(feature = "model")]
+fn model_for(args: &Args) -> Result<Option<&'static dyn transcript::analyze::Rewriter>> {
+    use doc_monster::model::Qwen;
+    static MODEL: std::sync::OnceLock<std::result::Result<Qwen, String>> =
+        std::sync::OnceLock::new();
+    if args.summarizer != Summarizer::Model {
+        return Ok(None);
+    }
+    match MODEL.get_or_init(|| Qwen::load(args.model_dir.as_deref()).map_err(|e| format!("{e:#}")))
+    {
+        Ok(m) => Ok(Some(m)),
+        Err(e) => bail!("the summarizing model could not be loaded: {e}"),
+    }
+}
+
+#[cfg(not(feature = "model"))]
+fn model_for(args: &Args) -> Result<Option<&'static dyn transcript::analyze::Rewriter>> {
+    if args.summarizer == Summarizer::Model {
+        bail!(
+            "this copy of Doc Monster was built without the language model; the releases and \
+             `uv tool install doc-monster` include it (or build with --features model)"
+        );
+    }
+    Ok(None)
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -381,6 +433,7 @@ fn eat(args: &Args, ui: &ui::Ui) -> Result<Batch> {
         max_rows: args.max_rows,
         screen_lang: args.screen_lang.clone(),
         max_frames: args.max_frames.map(|m| m.max(1)),
+        transcript: args.transcript,
     };
 
     let mut results: Vec<Outcome> = found
@@ -640,8 +693,18 @@ fn process(
     if doc.markdown.trim().is_empty() && doc.summary.is_none() && doc.omitted.is_empty() {
         bail!("document has no text");
     }
+    // A transcript: summarised as a conversation; the body becomes the turns by topic.
+    let conversation = match doc.transcript.take() {
+        Some(t) if !args.no_summary => {
+            let s = transcript::analyze::summarize(&t, model_for(args)?);
+            doc.markdown = s.body;
+            doc.omitted.extend(s.notes);
+            Some((s.markdown, Some(s.description)))
+        }
+        _ => None,
+    };
     let mut note = None;
-    if !args.raw {
+    if !args.raw && conversation.is_none() {
         let (cleaned, report) = clean::clean(&doc.markdown);
         doc.markdown = cleaned;
         note = report.describe();
@@ -649,15 +712,18 @@ fn process(
     // (summary text, most representative sentence)
     let summary: Option<(String, Option<String>)> = if args.no_summary {
         None
+    } else if conversation.is_some() {
+        conversation.clone()
     } else if let Some(s) = doc.summary.clone() {
         // The reader already described the file (e.g. the shape of a data file).
         Some((s, None))
     } else {
         digest::digest(&doc.markdown, note.as_deref()).map(|d| (d.markdown, d.lead))
     };
-    let description = doc
-        .description
-        .clone()
+    let description = conversation
+        .as_ref()
+        .and_then(|(_, lead)| lead.clone())
+        .or_else(|| doc.description.clone())
         .or_else(|| summary.as_ref().and_then(|(_, lead)| lead.clone()))
         .or_else(|| digest::first_sentence(&doc.markdown))
         .map(|d| render::tidy_description(&d))

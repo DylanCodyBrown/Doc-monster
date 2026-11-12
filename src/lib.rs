@@ -11,9 +11,12 @@ pub mod clean;
 pub mod digest;
 pub mod extract;
 pub mod index;
+#[cfg(feature = "model")]
+pub mod model;
 pub mod profile;
 pub mod render;
 pub mod tools;
+pub mod transcript;
 
 use std::path::PathBuf;
 
@@ -31,4 +34,6 @@ pub struct Document {
     pub format: extract::Format,
     /// Full-fidelity Markdown conversion of the source.
     pub markdown: String,
+    /// The conversation, when the file is a transcript (meeting captions, "Name: ..." text).
+    pub transcript: Option<transcript::Transcript>,
 }

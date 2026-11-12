@@ -33,6 +33,27 @@ fn program(name: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// Writable places for Doc Monster's own files (unpacked tools, downloaded models), most
+/// permanent first, so later runs reuse them: $DOC_MONSTER_CACHE, %LOCALAPPDATA%,
+/// $XDG_CACHE_HOME, ~/.cache, then the temporary folder.
+pub fn cache_dirs() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(p) = std::env::var_os("DOC_MONSTER_CACHE") {
+        v.push(PathBuf::from(p));
+    }
+    if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+        v.push(PathBuf::from(p).join("doc-monster"));
+    }
+    if let Some(p) = std::env::var_os("XDG_CACHE_HOME") {
+        v.push(PathBuf::from(p).join("doc-monster"));
+    }
+    if let Some(p) = std::env::var_os("HOME") {
+        v.push(PathBuf::from(p).join(".cache").join("doc-monster"));
+    }
+    v.push(std::env::temp_dir().join("doc-monster"));
+    v
+}
+
 #[cfg(not(feature = "bundled-tools"))]
 mod bundled {
     pub fn dir() -> Option<std::path::PathBuf> {
@@ -52,31 +73,11 @@ mod bundled {
     pub fn dir() -> Option<PathBuf> {
         static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
         DIR.get_or_init(|| {
-            candidates()
+            super::cache_dirs()
                 .into_iter()
                 .find_map(|base| unpack(&base.join(format!("tools-{FINGERPRINT}"))).ok())
         })
         .clone()
-    }
-
-    /// Writable places to unpack to, most permanent first, so later runs reuse the copy.
-    fn candidates() -> Vec<PathBuf> {
-        let mut v = Vec::new();
-        if let Some(p) = std::env::var_os("DOC_MONSTER_CACHE") {
-            v.push(PathBuf::from(p));
-        }
-        // Windows: %LOCALAPPDATA%\doc-monster, the usual home for a program's own files.
-        if let Some(p) = std::env::var_os("LOCALAPPDATA") {
-            v.push(PathBuf::from(p).join("doc-monster"));
-        }
-        if let Some(p) = std::env::var_os("XDG_CACHE_HOME") {
-            v.push(PathBuf::from(p).join("doc-monster"));
-        }
-        if let Some(p) = std::env::var_os("HOME") {
-            v.push(PathBuf::from(p).join(".cache").join("doc-monster"));
-        }
-        v.push(std::env::temp_dir().join("doc-monster"));
-        v
     }
 
     fn unpack(dir: &Path) -> std::io::Result<PathBuf> {

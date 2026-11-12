@@ -619,3 +619,164 @@ fn text_in_pictures_is_read_and_pictures_without_text_are_skipped() {
         assert!(md.contains("the picture itself"), "{name}: {md}");
     }
 }
+
+/// The test meeting as text, Teams captions and Zoom captions: the same summary from each.
+#[test]
+fn meeting_transcripts_from_text_teams_and_zoom_are_summarised_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for f in ["meeting.txt", "meeting-teams.vtt", "meeting-zoom.vtt"] {
+        std::fs::copy(fixtures.join(f), d.join(f)).unwrap();
+    }
+    let (ok, log) = run(&["gorge", d.to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    let summary = |name: &str| {
+        let md = std::fs::read_to_string(d.join(name)).unwrap();
+        md[md.find("## Summary").unwrap()..md.find("## Full content").unwrap()].to_string()
+    };
+    let text = summary("meeting.md");
+    assert_eq!(text, summary("meeting-teams.md"));
+    assert_eq!(text, summary("meeting-zoom.md"));
+    for expected in [
+        "Meeting transcript · 6 min · 4 speakers · 3 topics",
+        "### Decisions\n- “We decided to give every affected player a free rare egg.” · Maya · 2:26",
+        "- **Jordan**: “I'll have the session locking done by Thursday.” · due Thursday · about outage",
+        "- **Lee**: “Lee, can you set that up this week?” → “Sure, I'll wire it into the dashboard by Wednesday.” · due Wednesday",
+        "### Questions left open\n- “Do rare pets keep their stats after trading?” · Sam · 4:20",
+        "- **0:04–2:33 · Outage**",
+        "- **3:02–4:36 · Rare pet balance**",
+        "- **5:10–6:15 · Hatching update release**",
+        "### Who said what\n- **Jordan Lee** · 33% of the words",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+    }
+    let md = std::fs::read_to_string(d.join("meeting.md")).unwrap();
+    assert!(
+        md.contains("description: \"Meeting transcript (6 min, 4 speakers: Jordan, Maya, Lee, Sam) covering outage, rare pet balance, hatching update release.\""),
+        "{md}"
+    );
+    // The full conversation follows, by topic.
+    assert!(
+        md.contains("## Rare pet balance (3:02–4:36)\n\n**Sam Park** (3:02): Next topic"),
+        "{md}"
+    );
+}
+
+#[test]
+fn teams_word_transcripts_and_short_chats_with_transcript_flag() {
+    use docx_rs::{Docx, Paragraph, Run};
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    // A Teams .docx transcript: the speaker and time on one line, their words below.
+    let mut doc =
+        Docx::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text("Weekly sync")));
+    for (who, at, said) in [
+        ("Maya Lopez", "0:03", "Morning. The outage first."),
+        (
+            "Jordan Lee",
+            "0:10",
+            "Saves were throttled on Tuesday. I'll have the fix done by Thursday.",
+        ),
+        (
+            "Maya Lopez",
+            "0:25",
+            "Good. Let's go with the free rare egg for affected players.",
+        ),
+        ("Sam Park", "0:31", "I'll post the announcement tomorrow."),
+        ("Jordan Lee", "0:40", "Do traded pets keep their stats?"),
+        ("Maya Lopez", "0:44", "Good question, nobody knows yet."),
+    ] {
+        doc = doc
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text(format!("{who}   {at}"))))
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text(said)));
+    }
+    doc.build()
+        .pack(std::fs::File::create(d.join("teams.docx")).unwrap())
+        .unwrap();
+    let (ok, log) = run(&["feed", d.join("teams.docx").to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("teams.md")).unwrap();
+    assert!(
+        md.contains("Meeting transcript · 41 s · 3 speakers"),
+        "{md}"
+    );
+    assert!(
+        md.contains("- **Jordan**: “I'll have the fix done by Thursday.” · due Thursday"),
+        "{md}"
+    );
+    assert!(
+        md.contains("- “Let's go with the free rare egg for affected players.” · Maya · 0:25"),
+        "{md}"
+    );
+    assert!(
+        md.contains("- “Do traded pets keep their stats?” · Jordan · 0:40"),
+        "{md}"
+    );
+
+    // Too short to be recognised on its own; --transcript reads it as a conversation anyway.
+    std::fs::write(
+        d.join("chat.txt"),
+        "Maya: Can you send the notes?\nJordan: Sure, I'll send them tonight.\n",
+    )
+    .unwrap();
+    let (ok, log) = run(&["feed", d.join("chat.txt").to_str().unwrap(), "-q"]);
+    assert!(ok, "{log}");
+    assert!(
+        !std::fs::read_to_string(d.join("chat.md"))
+            .unwrap()
+            .contains("Meeting transcript")
+    );
+    let (ok, log) = run(&[
+        "feed",
+        d.join("chat.txt").to_str().unwrap(),
+        "-q",
+        "--transcript",
+        "--overwrite",
+    ]);
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("chat.md")).unwrap();
+    assert!(
+        md.contains(
+            "- **Jordan**: “Can you send the notes?” → “Sure, I'll send them tonight.” · due tonight"
+        ),
+        "{md}"
+    );
+}
+
+/// The language model, when this build has it and the model files are on hand
+/// (DOC_MONSTER_MODEL_DIR): every topic gets a model summary, labelled as such.
+#[test]
+fn model_summaries_when_the_model_is_available() {
+    let Some(model_dir) = std::env::var_os("DOC_MONSTER_MODEL_DIR") else {
+        eprintln!("skipped: set DOC_MONSTER_MODEL_DIR to a folder with the model files");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    std::fs::copy(fixtures.join("meeting.txt"), d.join("meeting.txt")).unwrap();
+    let (ok, log) = run(&[
+        "feed",
+        d.join("meeting.txt").to_str().unwrap(),
+        "-q",
+        "--summarizer",
+        "model",
+        "--model-dir",
+        Path::new(&model_dir).to_str().unwrap(),
+    ]);
+    if log.contains("built without the language model") {
+        eprintln!("skipped: this build has no model");
+        return;
+    }
+    assert!(ok, "{log}");
+    let md = std::fs::read_to_string(d.join("meeting.md")).unwrap();
+    assert!(
+        md.contains("written by a language model (Qwen2.5 1.5B Instruct)"),
+        "{md}"
+    );
+    // The model's summary replaces the quoted key sentences under each topic.
+    let topics = &md[md.find("### Topics").unwrap()..md.find("### Who said what").unwrap()];
+    assert_eq!(topics.matches("\n  - ").count(), 3, "{topics}");
+    assert!(topics.to_lowercase().contains("saturday"), "{topics}");
+}

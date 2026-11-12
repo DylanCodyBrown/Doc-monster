@@ -84,6 +84,7 @@ mod tests {
             source: "a.txt".into(),
             format: Format::PlainText,
             markdown: "body text\n".into(),
+            transcript: None,
         }
     }
 

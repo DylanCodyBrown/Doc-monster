@@ -1,7 +1,7 @@
 # Doc Monster
 
 ```
-  Doc Monster 0.2.0                                   .-~~~-.
+  Doc Monster 0.3.0                                   .-~~~-.
   drop files or folders here, then press Enter       ( o   o )
   hungry. empty line quits                           (  \_/  )
   › report.docx                                       '~^~^~'
@@ -145,6 +145,54 @@ less often, are much faster. `--screen-lang spa` (or `eng+spa`) reads other lang
 `--max-frames N` reads at most N frames; anything skipped that way is listed under Not included. FFmpeg and Tesseract are required for videos (see [INSTALL.md](INSTALL.md)), except with the
 [Linux binary](<Linux Binary/README.md>), which has them built in.
 Speech itself is not transcribed; without subtitles the output says so.
+
+## Meetings and conversations
+
+Meeting transcripts are recognised automatically and summarised as conversations: **Teams and
+Zoom captions** (`.vtt`), **Teams Word transcripts** (`.docx`) and **text with `Name: ...`
+lines** (with or without times). `--transcript` reads a short chat as one too.
+
+```markdown
+### At a glance
+Meeting transcript · 6 min · 4 speakers · 3 topics · 560 words
+
+### Decisions
+- “We'll ship the hatching update on Saturday with trading turned off for the first twenty four hours.” · Maya · 5:58
+
+### Action items
+- **Jordan**: “I'll have the session locking done by Thursday.” · due Thursday · about outage · 1:40
+- **Lee**: “Lee, can you set that up this week?” → “Sure, I'll wire it into the dashboard by Wednesday.” · due Wednesday
+
+### Questions left open
+- “Do rare pets keep their stats after trading?” · Sam · 4:20
+
+### Topics
+- **0:04–2:33 · Outage** · Maya, Jordan, Sam, Lee
+- **3:02–4:36 · Rare pet balance** · Sam, Lee, Maya, Jordan
+- **5:10–6:15 · Hatching update release** · Maya, Jordan, Sam, Lee
+
+### Who said what
+- **Jordan Lee** · 33% of the words, 8 turns · _loop, profile, save_
+```
+
+Topics are found where someone announces one ("next topic, ...") or the vocabulary changes,
+and every item links to its time. Spoken filler ("um", "you know") is ignored, a request and
+its owner's "sure, I'll ..." become one action item, and a question counts as open only when
+nobody answered it. The full conversation follows, grouped by topic.
+
+**Written summaries, optional:** `--summarizer model` also has a small language model write
+each topic's summary in plain sentences. It runs on your own computer
+([Qwen2.5 1.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), Apache 2.0),
+is downloaded once (about 1.1 GB) and takes a few seconds per topic. It is given the decisions,
+tasks and open questions found above, so it does not turn a suggestion into a decision, and
+its summaries are labelled as model-written. `--model-dir` points at a folder holding the
+model files, for computers without internet access.
+
+```markdown
+- **3:02–4:36 · Rare pet balance** · Sam, Lee, Maya, Jordan
+  - The problem is that players hatch a hundred eggs and never see a rare pet. They discussed
+    whether to add a pity counter in the profile. Lee will model the numbers for Tuesday's meeting.
+```
 
 ## How the summary works
 

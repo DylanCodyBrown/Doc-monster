@@ -18,7 +18,7 @@ bash "$REPO/scripts/build-tools.sh" linux
 
 rustup target add "$TARGET"
 cd "$REPO"
-DOC_MONSTER_TOOLS="$WORK/linux/tools" cargo build --release --locked --target "$TARGET" --features bundled-tools
+DOC_MONSTER_TOOLS="$WORK/linux/tools" cargo build --release --locked --target "$TARGET" --features bundled-tools,model
 cp "target/$TARGET/release/doc-monster" "Linux Binary/doc-monster"
 file "Linux Binary/doc-monster"
 "Linux Binary/doc-monster" --version

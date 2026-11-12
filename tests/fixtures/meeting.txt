@@ -1,0 +1,35 @@
+Aurora weekly sync
+
+[00:00:04] Maya Lopez: Morning everyone. Three things today: the DataStore saving outage from Tuesday, the rare pet balance complaints, and whether we still ship the hatching update on Saturday.
+[00:00:21] Jordan Lee: Okay, the outage first. On Tuesday about four hundred players lost progress because our saves were being throttled. We were writing the whole profile every ten seconds.
+[00:00:44] Maya Lopez: Every ten seconds? I thought autosave ran once a minute.
+[00:00:50] Jordan Lee: It was supposed to, but the pet inventory change added a second save loop. Both loops hit the DataStore, so we blew through the request budget during peak hours.
+[00:01:12] Sam Park: Did we lose anything permanently, or can the profiles be restored?
+[00:01:18] Jordan Lee: Most of it is recoverable from the version history. I restored about three hundred profiles already. The rest need the backup script.
+[00:01:35] Maya Lopez: Good. What stops this from happening again?
+[00:01:40] Jordan Lee: I'd remove the second loop and add session locking, so two servers can never write the same profile. I'll have the session locking done by Thursday.
+[00:01:58] Lee Chen: Should we also add an alert when the save queue backs up? We would have caught this in minutes instead of hours.
+[00:02:06] Maya Lopez: Yes, let's add the alert. Lee, can you set that up this week?
+[00:02:11] Lee Chen: Sure, I'll wire it into the dashboard by Wednesday.
+[00:02:20] Sam Park: And the players who lost progress, do we compensate them?
+[00:02:26] Maya Lopez: We decided to give every affected player a free rare egg. Sam, can you write the announcement?
+[00:02:33] Sam Park: Yes, I'll post it on the forum tomorrow.
+[00:03:02] Sam Park: Next topic, the rare pet balance. The forum is full of complaints that players hatch a hundred eggs and never see a rare pet.
+[00:03:15] Lee Chen: The rare rate is one in fifty right now, but with bad luck streaks some players go two hundred hatches without one. The average looks fine, the worst cases feel terrible.
+[00:03:33] Maya Lopez: What would fix the worst cases without making rares common?
+[00:03:38] Lee Chen: A pity counter. Every hatch without a rare raises the chance a little, and after forty hatches a rare is guaranteed. Most games in the genre do this now.
+[00:03:55] Jordan Lee: The counter has to be saved in the profile, otherwise players reset it by rejoining. That touches the same save code we just talked about.
+[00:04:06] Maya Lopez: Then the pity counter waits until session locking is in. Lee, can you model the numbers for a guarantee at forty versus fifty hatches?
+[00:04:14] Lee Chen: Will do, I'll bring a spreadsheet to Tuesday's meeting.
+[00:04:20] Sam Park: Do rare pets keep their stats after trading? A lot of the complaints are about traded pets losing their bonuses.
+[00:04:28] Jordan Lee: Good question, I don't actually know. Trading was written before the stats system.
+[00:04:36] Maya Lopez: Let's find out before we change anything else in trading.
+[00:05:10] Maya Lopez: Last topic, the hatching update release. Are we still on for Saturday?
+[00:05:16] Jordan Lee: The update itself is ready. The risk is the trading exploit: players can duplicate rare pets if they trade during a server shutdown.
+[00:05:28] Sam Park: How long would a fix take?
+[00:05:31] Jordan Lee: About two days. The fix is to lock both profiles while the trade saves, which is the same session locking work.
+[00:05:44] Maya Lopez: So if session locking lands Thursday, the exploit is fixed too, and we can still ship Saturday.
+[00:05:52] Lee Chen: I'd still disable trading for the first day after the update, just to be safe.
+[00:05:58] Maya Lopez: Agreed. We'll ship the hatching update on Saturday with trading turned off for the first twenty four hours. I'll write the patch notes.
+[00:06:10] Sam Park: I'll schedule the release post for Saturday morning.
+[00:06:15] Maya Lopez: Great, thanks everyone.

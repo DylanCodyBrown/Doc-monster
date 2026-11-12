@@ -85,6 +85,8 @@ pub struct Options {
     pub screen_lang: String,
     /// Most video frames whose text is read (`None`: every frame where the screen changed).
     pub max_frames: Option<usize>,
+    /// Read text with speaker lines as a transcript even when it is short.
+    pub transcript: bool,
 }
 
 impl Default for Options {
@@ -93,6 +95,7 @@ impl Default for Options {
             max_rows: 5000,
             screen_lang: "eng".into(),
             max_frames: None,
+            transcript: false,
         }
     }
 }
@@ -369,6 +372,8 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
         .unwrap_or("untitled")
         .to_string();
 
+    // Meetings and conversations: transcripts are found in captions, text and Word files.
+    let mut transcript = None;
     // Videos can be gigabytes: never read them whole.
     let out: Out = if format == Format::Video {
         video::convert(path, &fallback, opts)?
@@ -379,7 +384,7 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
         csv_table::convert(path, &fallback, opts.max_rows)?
     } else {
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-        match format {
+        let out = match format {
             Format::Markdown => text::convert_markdown(&bytes, &fallback)?,
             Format::PlainText => text::convert(&bytes, &fallback)?.into(),
             Format::Code => text::convert_code(&bytes, path, &fallback)?.into(),
@@ -394,7 +399,20 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
             Format::Xlsx => xlsx::convert(&bytes, &fallback, opts.max_rows)?,
             Format::Subtitles => subtitles::convert(&bytes, &fallback)?.into(),
             Format::Video | Format::Image | Format::Csv => unreachable!(),
-        }
+        };
+        transcript = match format {
+            Format::Subtitles => {
+                crate::transcript::detect(&String::from_utf8_lossy(&bytes), true, opts.transcript)
+            }
+            Format::PlainText | Format::Markdown | Format::Code => {
+                crate::transcript::detect(&text::decode(&bytes), false, opts.transcript)
+            }
+            Format::Docx | Format::Odf | Format::Rtf | Format::LegacyDoc | Format::Pdf => {
+                crate::transcript::detect(&out.markdown, false, opts.transcript)
+            }
+            _ => None,
+        };
+        out
     };
 
     Ok(Document {
@@ -405,6 +423,7 @@ pub fn extract_with(path: &Path, opts: &Options) -> Result<Document> {
         source: path.to_path_buf(),
         format,
         markdown: out.markdown,
+        transcript,
     })
 }
 

@@ -1,0 +1,133 @@
+WEBVTT
+
+0001-0
+00:00:04.000 --> 00:00:21.000
+<v Maya Lopez>Morning everyone. Three things today: the DataStore saving outage from Tuesday, the rare pet balance complaints, and whether we still ship the hatching update on Saturday.</v>
+
+0002-0
+00:00:21.000 --> 00:00:44.000
+<v Jordan Lee>Okay, the outage first. On Tuesday about four hundred players lost progress because our saves were being throttled. We were writing the whole profile every ten seconds.</v>
+
+0003-0
+00:00:44.000 --> 00:00:50.000
+<v Maya Lopez>Every ten seconds? I thought autosave ran once a minute.</v>
+
+0004-0
+00:00:50.000 --> 00:01:12.000
+<v Jordan Lee>It was supposed to, but the pet inventory change added a second save loop. Both loops hit the DataStore, so we blew through the request budget during peak hours.</v>
+
+0005-0
+00:01:12.000 --> 00:01:18.000
+<v Sam Park>Did we lose anything permanently, or can the profiles be restored?</v>
+
+0006-0
+00:01:18.000 --> 00:01:35.000
+<v Jordan Lee>Most of it is recoverable from the version history. I restored about three hundred profiles already. The rest need the backup script.</v>
+
+0007-0
+00:01:35.000 --> 00:01:40.000
+<v Maya Lopez>Good. What stops this from happening again?</v>
+
+0008-0
+00:01:40.000 --> 00:01:58.000
+<v Jordan Lee>I'd remove the second loop and add session locking, so two servers can never write the same profile. I'll have the session locking done by Thursday.</v>
+
+0009-0
+00:01:58.000 --> 00:02:06.000
+<v Lee Chen>Should we also add an alert when the save queue backs up? We would have caught this in minutes instead of hours.</v>
+
+000a-0
+00:02:06.000 --> 00:02:11.000
+<v Maya Lopez>Yes, let's add the alert. Lee, can you set that up this week?</v>
+
+000b-0
+00:02:11.000 --> 00:02:20.000
+<v Lee Chen>Sure, I'll wire it into the dashboard by Wednesday.</v>
+
+000c-0
+00:02:20.000 --> 00:02:26.000
+<v Sam Park>And the players who lost progress, do we compensate them?</v>
+
+000d-0
+00:02:26.000 --> 00:02:33.000
+<v Maya Lopez>We decided to give every affected player a free rare egg. Sam, can you write the announcement?</v>
+
+000e-0
+00:02:33.000 --> 00:03:02.000
+<v Sam Park>Yes, I'll post it on the forum tomorrow.</v>
+
+000f-0
+00:03:02.000 --> 00:03:15.000
+<v Sam Park>Next topic, the rare pet balance. The forum is full of complaints that players hatch a hundred eggs and never see a rare pet.</v>
+
+0010-0
+00:03:15.000 --> 00:03:33.000
+<v Lee Chen>The rare rate is one in fifty right now, but with bad luck streaks some players go two hundred hatches without one. The average looks fine, the worst cases feel terrible.</v>
+
+0011-0
+00:03:33.000 --> 00:03:38.000
+<v Maya Lopez>What would fix the worst cases without making rares common?</v>
+
+0012-0
+00:03:38.000 --> 00:03:55.000
+<v Lee Chen>A pity counter. Every hatch without a rare raises the chance a little, and after forty hatches a rare is guaranteed. Most games in the genre do this now.</v>
+
+0013-0
+00:03:55.000 --> 00:04:06.000
+<v Jordan Lee>The counter has to be saved in the profile, otherwise players reset it by rejoining. That touches the same save code we just talked about.</v>
+
+0014-0
+00:04:06.000 --> 00:04:14.000
+<v Maya Lopez>Then the pity counter waits until session locking is in. Lee, can you model the numbers for a guarantee at forty versus fifty hatches?</v>
+
+0015-0
+00:04:14.000 --> 00:04:20.000
+<v Lee Chen>Will do, I'll bring a spreadsheet to Tuesday's meeting.</v>
+
+0016-0
+00:04:20.000 --> 00:04:28.000
+<v Sam Park>Do rare pets keep their stats after trading? A lot of the complaints are about traded pets losing their bonuses.</v>
+
+0017-0
+00:04:28.000 --> 00:04:36.000
+<v Jordan Lee>Good question, I don't actually know. Trading was written before the stats system.</v>
+
+0018-0
+00:04:36.000 --> 00:05:10.000
+<v Maya Lopez>Let's find out before we change anything else in trading.</v>
+
+0019-0
+00:05:10.000 --> 00:05:16.000
+<v Maya Lopez>Last topic, the hatching update release. Are we still on for Saturday?</v>
+
+001a-0
+00:05:16.000 --> 00:05:28.000
+<v Jordan Lee>The update itself is ready. The risk is the trading exploit: players can duplicate rare pets if they trade during a server shutdown.</v>
+
+001b-0
+00:05:28.000 --> 00:05:31.000
+<v Sam Park>How long would a fix take?</v>
+
+001c-0
+00:05:31.000 --> 00:05:44.000
+<v Jordan Lee>About two days. The fix is to lock both profiles while the trade saves, which is the same session locking work.</v>
+
+001d-0
+00:05:44.000 --> 00:05:52.000
+<v Maya Lopez>So if session locking lands Thursday, the exploit is fixed too, and we can still ship Saturday.</v>
+
+001e-0
+00:05:52.000 --> 00:05:58.000
+<v Lee Chen>I'd still disable trading for the first day after the update, just to be safe.</v>
+
+001f-0
+00:05:58.000 --> 00:06:10.000
+<v Maya Lopez>Agreed. We'll ship the hatching update on Saturday with trading turned off for the first twenty four hours. I'll write the patch notes.</v>
+
+0020-0
+00:06:10.000 --> 00:06:15.000
+<v Sam Park>I'll schedule the release post for Saturday morning.</v>
+
+0021-0
+00:06:15.000 --> 00:06:20.000
+<v Maya Lopez>Great, thanks everyone.</v>

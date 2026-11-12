@@ -1,6 +1,6 @@
 [package]
 name = "doc-monster"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Eats documents, writes clean Markdown with a notebook-style summary beside each one. Free, offline, no model."
 license = "MIT OR Apache-2.0"
@@ -31,10 +31,18 @@ toml = "1.2.1"
 walkdir = "2.5.0"
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 terminal_size = "0.4.4"
+candle-core = { version = "0.11.1", optional = true }
+candle-transformers = { version = "0.11.1", optional = true }
+tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex"], optional = true }
+sha2 = { version = "0.11.1", optional = true }
+ureq = { version = "3.5.1", optional = true, default-features = false, features = ["rustls", "platform-verifier"] }
 
 [features]
 # Build FFmpeg, ffprobe and Tesseract into the program (see Linux Binary/README.md).
 bundled-tools = ["dep:flate2"]
+# Optional summaries written by a local language model (Flan-T5, run with candle):
+# --summarizer model. The model is downloaded once, on first use.
+model = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers", "dep:sha2", "dep:ureq"]
 
 [build-dependencies]
 flate2 = "1.1.11"
@@ -52,3 +60,6 @@ strip = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.52"

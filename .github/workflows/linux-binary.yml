@@ -6,7 +6,7 @@ name: Linux binary
 
 on:
   push:
-    branches: [main]
+    branches: [main, ccr-e274588c-aeoqh7]  # TEMP: testing on this branch
   workflow_dispatch:
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
       - name: Test with the tools built in
         env:
           DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/linux/tools
-        run: cargo test --release --locked --target x86_64-unknown-linux-musl --features bundled-tools
+        run: cargo test --release --locked --target x86_64-unknown-linux-musl --features bundled-tools,model
 
       - name: Check it runs videos with nothing installed
         run: |
@@ -74,7 +74,27 @@ jobs:
           DOC_MONSTER_TOOLS: ${{ github.workspace }}/target/bundled-tools/linux/tools
         run: |
           python3 -m pip install --quiet --user maturin || python3 -m pip install --quiet --user --break-system-packages maturin
-          ~/.local/bin/maturin build --release --locked --target x86_64-unknown-linux-musl --features bundled-tools --out dist
+          ~/.local/bin/maturin build --release --locked --target x86_64-unknown-linux-musl --features bundled-tools,model --out dist
+
+      # The language model for --summarizer model (1.1 GB), downloaded once and kept.
+      - name: Reuse the summarizing model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/doc-monster/models
+          key: model-qwen2.5-1.5b-instruct-91cad511
+
+      - name: Check transcripts, with and without the model
+        run: |
+          B="$PWD/Linux Binary/doc-monster"
+          dir="$(mktemp -d)"
+          cp tests/fixtures/meeting.txt tests/fixtures/meeting-teams.vtt "$dir/"
+          "$B" gorge "$dir/meeting.txt" "$dir/meeting-teams.vtt" --no-anim
+          grep -q "### Action items" "$dir/meeting.md"
+          grep -q "Rare pet balance" "$dir/meeting-teams.md"
+          # The model downloads itself on first use (into ~/.cache/doc-monster).
+          "$B" feed "$dir/meeting.txt" --summarizer model --overwrite --no-anim
+          grep -q "written by a language model (Qwen2.5 1.5B Instruct)" "$dir/meeting.md"
+          sed -n '/### Topics/,/### Who said what/p' "$dir/meeting.md"
 
       - name: Fingerprint
         id: sum

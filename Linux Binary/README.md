@@ -10,6 +10,8 @@ chmod +x doc-monster
 ./doc-monster feed report.docx
 ./doc-monster feed talk.mp4          # on-screen text and subtitles, no FFmpeg install needed
 ./doc-monster feed sign.png          # the text in a picture
+./doc-monster feed standup.vtt        # a Teams or Zoom meeting: decisions, tasks, topics
+./doc-monster feed standup.vtt --summarizer model   # plus written topic summaries (model downloaded once)
 ```
 
 ## What it targets
@@ -26,10 +28,10 @@ chmod +x doc-monster
 
 | | |
 | --- | --- |
-| Doc Monster | `doc-monster 0.2.0`, built from this repository with `--features bundled-tools` |
+| Doc Monster | `doc-monster 0.3.0`, built from this repository with `--features bundled-tools,model` |
 | Compiler | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
-| Size | 18,044,224 bytes |
-| SHA-256 | `40d1797f8a94c94fcdb049a1b36b327eb8f1ff54472dae4d8a783f10153c0f34` |
+| Size | 24,914,672 bytes |
+| SHA-256 | `b3a2a77c7a876365689cc4c676b2a51bc8a2e7dd247e1b570fdb93965ac7bef5` |
 
 Built in:
 
@@ -57,12 +59,12 @@ $ ldd doc-monster
 statically linked
 
 $ doc-monster --version
-doc-monster 0.2.0
+doc-monster 0.3.0
 ```
 
 - Converting a small HTML page with `-c 6` wrote the expected Markdown with front matter.
 - `regurgitate --keep-duplicates` on two Markdown files wrote an `INDEX.md` listing both.
-- The test suite passed on this target with the tools built in: 98 tests, 0 failures.
+- The test suite passed on this target with the tools built in: 109 tests, 0 failures.
 - With the `PATH` emptied, so no system FFmpeg or Tesseract could be found, the test slides video
   converted to the same Markdown as a build using the system's tools.
 - A 10-minute 720p video: 598 screen changes found, 467 read, in 20.5 seconds (21.8 seconds with
